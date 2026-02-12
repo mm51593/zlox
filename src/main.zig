@@ -6,12 +6,10 @@ const debug = @import("debug.zig");
 pub fn main() !void {
     var cnk = try chunk.Chunk.init();
     try cnk.write(op_code.OpCode.OP_RETURN);
-    try cnk.write(op_code.OpCode.OP_RETURN);
-    try cnk.write(op_code.OpCode.OP_RETURN);
-    try cnk.write(op_code.OpCode.OP_RETURN);
-    
-    debug.disasChunk(cnk, "test chunk");
 
+    const addr = try cnk.addConstant(1.2);
+    try cnk.write(op_code.OpCode{ .OP_CONSTANT = addr });
+
+    debug.disasChunk(cnk, "test chunk");
     cnk.free();
 }
-
