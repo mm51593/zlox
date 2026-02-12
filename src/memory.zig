@@ -1,12 +1,13 @@
 const std = @import("std");
 
-pub fn ensureCapacity(comptime T: type, array: []T, count: usize, alloc: std.mem.Allocator) ![]T {
-    if (array.len < count + 1) {
+pub fn ensureCapacity(comptime T: type, array: []u8, count: usize, alloc: std.mem.Allocator) ![]u8 {
+    var newArray = array;
+    while (array.len < count + @sizeOf(T)) {
         const newCap = growCapacity(array.len);
-        return alloc.realloc(array, newCap) catch |err| (return err);
+        newArray = try alloc.realloc(array, newCap); 
     }
 
-    return array;
+    return newArray;
 }
 
 fn growCapacity(capacity: usize) usize {
@@ -18,5 +19,5 @@ fn growCapacity(capacity: usize) usize {
 }
 
 fn reallocateArray(comptime T: type, ptr: []T, new_size: usize, alloc: std.mem.Allocator) ![]T {
-    return alloc.realloc(ptr, new_size) catch |err| (return err);
+    return try alloc.realloc(ptr, new_size);
 }

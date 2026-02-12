@@ -3,9 +3,11 @@ const value = @import("value.zig");
 
 pub const RenderOffsetPair = struct { render: []const u8, offset: usize };
 
-pub const OpCode = union(enum) {
+pub const BYTE = u8;
+
+pub const OpCode = enum(BYTE) {
     OP_RETURN,
-    OP_CONSTANT: usize,
+    OP_CONSTANT,
 
     pub fn render(self: OpCode) RenderOffsetPair {
         switch (self) {

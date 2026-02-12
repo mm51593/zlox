@@ -1,39 +1,37 @@
 const std = @import("std");
-const mem = @import("memory.zig");
 const op_code = @import("op_code.zig");
 const value = @import("value.zig");
 
 var gpa = std.heap.DebugAllocator(.{}){};
-const allocator = gpa.allocator();
+const alloc = gpa.allocator();
 
 const INITIAL_CAPACITY = 8;
+const BYTE = op_code.BYTE;
 
 pub const Chunk = struct {
-    count: usize,
-    code: []op_code.OpCode,
+    code: std.ArrayList(BYTE),
     constants: value.ValueArray,
 
     pub fn init() !Chunk {
-        const block = try allocator.alloc(op_code.OpCode, INITIAL_CAPACITY);
+        const byte_stream = try std.ArrayList(BYTE).initCapacity(alloc, INITIAL_CAPACITY);
         const constants = try value.ValueArray.init();
-        return Chunk{ .count = 0, .code = block, .constants = constants };
+        return Chunk{ .code = byte_stream, .constants = constants };
     }
 
-    pub fn write(self: *Chunk, byte: op_code.OpCode) !void {
-        self.code = try mem.ensureCapacity(op_code.OpCode, self.code, self.count, allocator);
+    pub fn write(self: *Chunk, comptime T: type, data: T) !void {
+        var buf: [@sizeOf(T)]BYTE = undefined;
+        std.mem.writeInt(T, &buf, data, std.builtin.Endian.little);
 
-        self.code[self.count] = byte;
-        self.count += 1;
+        try self.code.appendSlice(alloc, &buf);
     }
 
     pub fn addConstant(self: *Chunk, val: value.Value) !usize {
         try self.constants.write(val);
-        return self.constants.count - 1;
+        return self.constants.values.items.len - 1;
     }
 
     pub fn free(self: *Chunk) void {
-        self.count = 0;
         self.constants.free();
-        allocator.free(self.code);
+        alloc.free(self.code);
     }
 };
