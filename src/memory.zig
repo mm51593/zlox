@@ -4,7 +4,7 @@ pub fn ensureCapacity(comptime T: type, array: []u8, count: usize, alloc: std.me
     var newArray = array;
     while (array.len < count + @sizeOf(T)) {
         const newCap = growCapacity(array.len);
-        newArray = try alloc.realloc(array, newCap); 
+        newArray = try alloc.realloc(array, newCap);
     }
 
     return newArray;

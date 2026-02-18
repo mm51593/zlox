@@ -1,6 +1,5 @@
 const std = @import("std");
 const Token = @import("token.zig").Token;
-const TokenType = @import("token.zig").TokenType;
 
 pub const Scanner = struct {
     start: usize,
@@ -12,170 +11,175 @@ pub const Scanner = struct {
         return Scanner{ .start = 0, .current = 0, .source = source, .line = 1 };
     }
 
-    pub fn scanToken(scan: *Scanner) Token {
-        scan.skipWhitespace();
-        scan.start = scan.current;
+    pub fn scanToken(self: *Scanner) Token {
+        self.skipWhitespace();
+        self.start = self.current;
 
-        if (scan.isAtEnd()) {
-            return scan.makeToken(.EOF);
+        if (self.isAtEnd()) {
+            return self.makeToken(.EOF);
         }
 
-        const c = scan.advance();
+        const c = self.advance();
 
         if (std.ascii.isAlphabetic(c) or c == '_') {
-            return scan.makeIdentifier();
+            return self.makeIdentifier();
         }
 
         if (std.ascii.isDigit(c)) {
-            return scan.makeNumber();
+            return self.makeNumber();
         }
 
         switch (c) {
-            '(' => return scan.makeToken(.LEFT_PAREN),
-            ')' => return scan.makeToken(.RIGHT_PAREN),
-            '{' => return scan.makeToken(.LEFT_BRACE),
-            '}' => return scan.makeToken(.RIGHT_BRACE),
-            ';' => return scan.makeToken(.SEMICOLON),
-            ',' => return scan.makeToken(.COMMA),
-            '.' => return scan.makeToken(.DOT),
-            '-' => return scan.makeToken(.MINUS),
-            '+' => return scan.makeToken(.PLUS),
-            '/' => return scan.makeToken(.SLASH),
-            '*' => return scan.makeToken(.STAR),
+            '(' => return self.makeToken(.LEFT_PAREN),
+            ')' => return self.makeToken(.RIGHT_PAREN),
+            '{' => return self.makeToken(.LEFT_BRACE),
+            '}' => return self.makeToken(.RIGHT_BRACE),
+            ';' => return self.makeToken(.SEMICOLON),
+            ',' => return self.makeToken(.COMMA),
+            '.' => return self.makeToken(.DOT),
+            '-' => return self.makeToken(.MINUS),
+            '+' => return self.makeToken(.PLUS),
+            '/' => return self.makeToken(.SLASH),
+            '*' => return self.makeToken(.STAR),
 
             '!' => {
-                const tknType: TokenType = if (scan.match('=')) .BANG_EQUAL else .BANG;
-                return scan.makeToken(tknType);
+                const tknType: Token.Type = if (self.match('=')) .BANG_EQUAL else .BANG;
+                return self.makeToken(tknType);
             },
             '=' => {
-                const tknType: TokenType = if (scan.match('=')) .EQUAL_EQUAL else .EQUAL;
-                return scan.makeToken(tknType);
+                const tknType: Token.Type = if (self.match('=')) .EQUAL_EQUAL else .EQUAL;
+                return self.makeToken(tknType);
             },
             '>' => {
-                const tknType: TokenType = if (scan.match('=')) .GREATER_EQUAL else .GREATER;
-                return scan.makeToken(tknType);
+                const tknType: Token.Type = if (self.match('=')) .GREATER_EQUAL else .GREATER;
+                return self.makeToken(tknType);
             },
             '<' => {
-                const tknType: TokenType = if (scan.match('=')) .LESS_EQUAL else .LESS;
-                return scan.makeToken(tknType);
+                const tknType: Token.Type = if (self.match('=')) .LESS_EQUAL else .LESS;
+                return self.makeToken(tknType);
             },
 
-            '"' => return scan.makeString(),
+            '"' => return self.makeString(),
             else => {},
         }
-        
-        return scan.makeError("Unexpected character.");
+
+        return self.makeError("Unexpected character.");
     }
 
-    fn isAtEnd(scan: Scanner) bool {
-        return scan.current >= scan.source.len;
+    fn isAtEnd(self: Scanner) bool {
+        return self.current >= self.source.len;
     }
 
-    fn makeToken(scan: Scanner, tokenType: TokenType) Token {
-        return Token{ .tokenType = tokenType, .lexeme = scan.source[scan.start..scan.current], .line = scan.line };
-    }
-
-    fn makeError(scan: Scanner, msg: []const u8) Token {
+    // zig fmt: off
+    fn makeToken(self: Scanner, tokenType: Token.Type) Token {
         return Token{
-            .tokenType = .ERROR,
-            .lexeme = msg,
-            .line = scan.line,
+            .tokenType = tokenType,
+            .lexeme = self.source[self.start..self.current],
+            .line = self.line
         };
     }
 
-    fn makeString(scan: *Scanner) Token {
-        while (scan.peek() != '=' and !scan.isAtEnd()) {
-            if (scan.peek() == '\n') {
-                scan.line += 1;
+    fn makeError(self: Scanner, msg: []const u8) Token {
+        return Token{
+            .tokenType = .ERROR,
+            .lexeme = msg,
+            .line = self.line,
+        };
+    }
+
+    fn makeString(self: *Scanner) Token {
+        while (self.peek() != '=' and !self.isAtEnd()) {
+            if (self.peek() == '\n') {
+                self.line += 1;
             }
-            _ = scan.advance();
+            _ = self.advance();
         }
 
-        if (scan.isAtEnd()) {
+        if (self.isAtEnd()) {
             const msg = "Unterminated string.";
-            return scan.makeError(msg[0..]);
+            return self.makeError(msg[0..]);
         }
 
         // closing quote
-        _ = scan.advance();
-        return scan.makeToken(.STRING);
+        _ = self.advance();
+        return self.makeToken(.STRING);
     }
 
-    fn makeNumber(scan: *Scanner) Token {
-        while (std.ascii.isDigit(scan.peek())) {
-            _ = scan.advance();
+    fn makeNumber(self: *Scanner) Token {
+        while (std.ascii.isDigit(self.peek())) {
+            _ = self.advance();
         }
 
-        if (scan.peek() == '.' and std.ascii.isDigit(scan.peekNext())) {
+        if (self.peek() == '.' and std.ascii.isDigit(self.peekNext())) {
             // consume the '.'
-            _ = scan.advance();
+            _ = self.advance();
 
-            while (std.ascii.isDigit(scan.peek())) {
-                _ = scan.advance();
+            while (std.ascii.isDigit(self.peek())) {
+                _ = self.advance();
             }
         }
 
-        return scan.makeToken(.NUMBER);
+        return self.makeToken(.NUMBER);
     }
 
-    fn makeIdentifier(scan: *Scanner) Token {
-        while (std.ascii.isAlphabetic(scan.peek()) or
-            std.ascii.isDigit(scan.peek()) or scan.peek() == '_')
+    fn makeIdentifier(self: *Scanner) Token {
+        while (std.ascii.isAlphabetic(self.peek()) or
+            std.ascii.isDigit(self.peek()) or self.peek() == '_')
         {
-            _ = scan.advance();
+            _ = self.advance();
         }
 
-        return scan.makeToken(scan.getIdentifierType());
+        return self.makeToken(self.getIdentifierType());
     }
 
-    fn peek(scan: Scanner) u8 {
-        return scan.source[scan.current];
+    fn peek(self: Scanner) u8 {
+        return self.source[self.current];
     }
 
-    fn peekNext(scan: Scanner) u8 {
-        if (scan.isAtEnd()) {
+    fn peekNext(self: Scanner) u8 {
+        if (self.isAtEnd()) {
             return 0;
         }
-        return scan.source[scan.current + 1];
+        return self.source[self.current + 1];
     }
 
-    fn advance(scan: *Scanner) u8 {
-        const c = scan.peek();
-        scan.current += 1;
+    fn advance(self: *Scanner) u8 {
+        const c = self.peek();
+        self.current += 1;
         return c;
     }
 
-    fn match(scan: *Scanner, expected: u8) bool {
-        if (scan.isAtEnd()) {
+    fn match(self: *Scanner, expected: u8) bool {
+        if (self.isAtEnd()) {
             return false;
         }
 
-        if (scan.peek() != expected) {
+        if (self.peek() != expected) {
             return false;
         }
 
-        scan.current += 1;
+        self.current += 1;
         return true;
     }
 
-    fn skipWhitespace(scan: *Scanner) void {
+    fn skipWhitespace(self: *Scanner) void {
         while (true) {
-            if (scan.isAtEnd()) {
+            if (self.isAtEnd()) {
                 return;
             }
 
-            const c = scan.peek();
+            const c = self.peek();
             if (std.ascii.isWhitespace(c)) {
-                _ = scan.advance();
+                _ = self.advance();
                 if (c == '\n') {
-                    scan.line += 1;
+                    self.line += 1;
                 }
                 continue;
             }
 
-            if (c == '/' and scan.peekNext() == '/') {
-                while (scan.peek() != '\n' and !scan.isAtEnd()) {
-                    _ = scan.advance();
+            if (c == '/' and self.peekNext() == '/') {
+                while (self.peek() != '\n' and !self.isAtEnd()) {
+                    _ = self.advance();
                 }
                 continue;
             }
@@ -184,42 +188,42 @@ pub const Scanner = struct {
         }
     }
 
-    fn getIdentifierType(scan: Scanner) TokenType {
-        switch (scan.source[scan.start]) {
-            'a' => return scan.checkKeyword(1, "nd", .AND),
-            'c' => return scan.checkKeyword(1, "lass", .CLASS),
-            'e' => return scan.checkKeyword(1, "lse", .ELSE),
-            'f' => if (scan.current - scan.start > 1) {
-                switch (scan.source[scan.start + 1]) {
-                    'a' => return scan.checkKeyword(2, "lse", .FALSE),
-                    'o' => return scan.checkKeyword(2, "r", .FOR),
+    fn getIdentifierType(self: Scanner) Token.Type {
+        switch (self.source[self.start]) {
+            'a' => return self.checkKeyword(1, "nd", .AND),
+            'c' => return self.checkKeyword(1, "lass", .CLASS),
+            'e' => return self.checkKeyword(1, "lse", .ELSE),
+            'f' => if (self.current - self.start > 1) {
+                switch (self.source[self.start + 1]) {
+                    'a' => return self.checkKeyword(2, "lse", .FALSE),
+                    'o' => return self.checkKeyword(2, "r", .FOR),
                     else => {},
                 }
             },
-            'i' => return scan.checkKeyword(1, "f", .IF),
-            'n' => return scan.checkKeyword(1, "il", .NIL),
-            'o' => return scan.checkKeyword(1, "r", .OR),
-            'p' => return scan.checkKeyword(1, "rint", .PRINT),
-            'r' => return scan.checkKeyword(1, "eturn", .RETURN),
-            's' => return scan.checkKeyword(1, "uper", .SUPER),
-            't' => if (scan.current - scan.start > 1) {
-                switch (scan.source[scan.start + 1]) {
-                    'h' => return scan.checkKeyword(2, "is", .THIS),
-                    'r' => return scan.checkKeyword(2, "ue", .TRUE),
+            'i' => return self.checkKeyword(1, "f", .IF),
+            'n' => return self.checkKeyword(1, "il", .NIL),
+            'o' => return self.checkKeyword(1, "r", .OR),
+            'p' => return self.checkKeyword(1, "rint", .PRINT),
+            'r' => return self.checkKeyword(1, "eturn", .RETURN),
+            's' => return self.checkKeyword(1, "uper", .SUPER),
+            't' => if (self.current - self.start > 1) {
+                switch (self.source[self.start + 1]) {
+                    'h' => return self.checkKeyword(2, "is", .THIS),
+                    'r' => return self.checkKeyword(2, "ue", .TRUE),
                     else => {},
                 }
             },
-            'v' => return scan.checkKeyword(1, "ar", .VAR),
-            'w' => return scan.checkKeyword(1, "hile", .WHILE),
+            'v' => return self.checkKeyword(1, "ar", .VAR),
+            'w' => return self.checkKeyword(1, "hile", .WHILE),
             else => {},
         }
 
         return .IDENTIFIER;
     }
 
-    fn checkKeyword(scan: Scanner, idx: usize, rest: []const u8, tokenType: TokenType) TokenType {
-        if (scan.current - scan.start == rest.len + idx and
-            std.mem.startsWith(u8, scan.source[scan.start + idx..], rest))
+    fn checkKeyword(self: Scanner, idx: usize, rest: []const u8, tokenType: Token.Type) Token.Type {
+        if (self.current - self.start == rest.len + idx and
+            std.mem.startsWith(u8, self.source[self.start + idx ..], rest))
         {
             return tokenType;
         }

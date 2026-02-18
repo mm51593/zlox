@@ -12,7 +12,6 @@ comptime {
     }
 }
 
-
 pub const OpCode = enum(BYTE) {
     // simple
     OP_RETURN,
@@ -46,10 +45,10 @@ pub const OpCode = enum(BYTE) {
             .OP_CONSTANT => {
                 const size = @sizeOf(address);
                 const val = std.mem.readInt(address, bytestream[0..size], std.builtin.Endian.little);
-                const rend = try std.fmt.bufPrint(buf, "{s} {}", .{@tagName(self), val});
+                const rend = try std.fmt.bufPrint(buf, "{s} {}", .{ @tagName(self), val });
 
                 offset = size;
-                return RenderOffsetPair{ .render = rend, .offset = offset }; 
+                return RenderOffsetPair{ .render = rend, .offset = offset };
             },
         }
     }

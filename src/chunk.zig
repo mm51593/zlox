@@ -25,8 +25,8 @@ pub const Chunk = struct {
         std.mem.writeInt(T, &buf, data, std.builtin.Endian.little);
 
         try self.code.appendSlice(alloc, &buf);
-        
-        try self.lines.appendNTimes(alloc, line, @sizeOf(T)/@sizeOf(BYTE));
+
+        try self.lines.appendNTimes(alloc, line, @sizeOf(T) / @sizeOf(BYTE));
     }
 
     pub fn addConstant(self: *Chunk, val: value.Value) !BYTE {

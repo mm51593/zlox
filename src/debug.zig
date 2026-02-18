@@ -17,7 +17,7 @@ pub fn disasInst(chunk: cnk.Chunk, idx: usize) !usize {
     const inst = chunk.code.items[idx];
     const line = chunk.lines.items[idx];
 
-    std.debug.print("{:0>4} ", .{idx}); 
+    std.debug.print("{:0>4} ", .{idx});
 
     if (idx != 0 and line == chunk.lines.items[idx - 1]) {
         std.debug.print("   | ", .{});
@@ -29,12 +29,10 @@ pub fn disasInst(chunk: cnk.Chunk, idx: usize) !usize {
     offset += 1;
 
     var buf: [32]u8 = undefined;
-    const r_o_pair = try op_code.render(&buf, chunk.code.items[idx + 1..]);
+    const r_o_pair = try op_code.render(&buf, chunk.code.items[idx + 1 ..]);
     offset += r_o_pair.offset;
 
     std.debug.print("{s}\n", .{r_o_pair.render});
 
-
     return offset;
 }
-
