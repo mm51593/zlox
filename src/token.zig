@@ -1,5 +1,5 @@
 pub const Token = struct {
-    tokenType: Type,
+    token_type: Type,
     lexeme: []const u8,
     line: usize,
 

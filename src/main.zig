@@ -35,7 +35,7 @@ fn repl(v_m: *vm.Vm) !void {
     while (true) {
         std.debug.print("> ", .{});
         const input = try stdin.takeDelimiter('\n');
-        if (input) |line| {
+        if (input) |line| {            
             _ = interpret(v_m, line);
         } else {
             break;

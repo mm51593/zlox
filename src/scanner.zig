@@ -4,10 +4,10 @@ const Token = @import("token.zig").Token;
 pub const Scanner = struct {
     start: usize,
     current: usize,
-    source: []u8,
+    source: []const u8,
     line: usize,
 
-    pub fn init(source: []u8) Scanner {
+    pub fn init(source: []const u8) Scanner {
         return Scanner{ .start = 0, .current = 0, .source = source, .line = 1 };
     }
 
@@ -71,9 +71,9 @@ pub const Scanner = struct {
     }
 
     // zig fmt: off
-    fn makeToken(self: Scanner, tokenType: Token.Type) Token {
+    fn makeToken(self: Scanner, token_type: Token.Type) Token {
         return Token{
-            .tokenType = tokenType,
+            .token_type = token_type,
             .lexeme = self.source[self.start..self.current],
             .line = self.line
         };
@@ -81,7 +81,7 @@ pub const Scanner = struct {
 
     fn makeError(self: Scanner, msg: []const u8) Token {
         return Token{
-            .tokenType = .ERROR,
+            .token_type = .ERROR,
             .lexeme = msg,
             .line = self.line,
         };
@@ -106,15 +106,16 @@ pub const Scanner = struct {
     }
 
     fn makeNumber(self: *Scanner) Token {
-        while (std.ascii.isDigit(self.peek())) {
+        while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
             _ = self.advance();
         }
 
-        if (self.peek() == '.' and std.ascii.isDigit(self.peekNext())) {
+        if (!self.isAtEnd() and self.peek() == '.' and 
+            std.ascii.isDigit(self.peekNext())) {
             // consume the '.'
             _ = self.advance();
 
-            while (std.ascii.isDigit(self.peek())) {
+            while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
                 _ = self.advance();
             }
         }
@@ -221,11 +222,11 @@ pub const Scanner = struct {
         return .IDENTIFIER;
     }
 
-    fn checkKeyword(self: Scanner, idx: usize, rest: []const u8, tokenType: Token.Type) Token.Type {
+    fn checkKeyword(self: Scanner, idx: usize, rest: []const u8, token_type: Token.Type) Token.Type {
         if (self.current - self.start == rest.len + idx and
             std.mem.startsWith(u8, self.source[self.start + idx ..], rest))
         {
-            return tokenType;
+            return token_type;
         }
         return .IDENTIFIER;
     }

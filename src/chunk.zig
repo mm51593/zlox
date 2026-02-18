@@ -10,17 +10,21 @@ const BYTE = op_code.BYTE;
 
 pub const Chunk = struct {
     code: std.ArrayList(BYTE),
-    lines: std.ArrayList(u32),
+    lines: std.ArrayList(usize),
     constants: value.ValueArray,
 
     pub fn init() !Chunk {
         const code = try std.ArrayList(BYTE).initCapacity(alloc, INITIAL_CAPACITY);
-        const lines = try std.ArrayList(u32).initCapacity(alloc, INITIAL_CAPACITY);
+        const lines = try std.ArrayList(usize).initCapacity(alloc, INITIAL_CAPACITY);
         const constants = try value.ValueArray.init();
         return Chunk{ .code = code, .lines = lines, .constants = constants };
     }
 
-    pub fn write(self: *Chunk, comptime T: type, data: T, line: u32) !void {
+    pub fn writeOp(self: *Chunk, op: op_code.OpCode, line: usize) !void {
+        try self.write(u8, @intFromEnum(op), line);
+    }
+
+    pub fn write(self: *Chunk, comptime T: type, data: T, line: usize) !void {
         var buf: [@sizeOf(T)]BYTE = undefined;
         std.mem.writeInt(T, &buf, data, std.builtin.Endian.little);
 
@@ -29,9 +33,9 @@ pub const Chunk = struct {
         try self.lines.appendNTimes(alloc, line, @sizeOf(T) / @sizeOf(BYTE));
     }
 
-    pub fn addConstant(self: *Chunk, val: value.Value) !BYTE {
+    pub fn addConstant(self: *Chunk, val: value.Value) !usize {
         try self.constants.write(val);
-        return @intCast(self.constants.values.items.len - 1);
+        return self.constants.values.items.len - 1;
     }
 
     pub fn free(self: *Chunk) void {

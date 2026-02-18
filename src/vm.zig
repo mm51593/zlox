@@ -4,6 +4,7 @@ const value = @import("value.zig");
 const BYTE = @import("op_code.zig").BYTE;
 const OpCode = @import("op_code.zig").OpCode;
 const Scanner = @import("scanner.zig").Scanner;
+const Parser = @import("parser.zig").Parser;
 
 const STACK_MAX = 256;
 
@@ -21,29 +22,34 @@ pub const Vm = struct {
 
     pub fn free(_: Vm) void {}
 
-    pub fn interpret(_: *Vm, source: []u8) InterpretResult {
-        var scanner = Scanner.init(source);
-        var line: ?usize = null;
-        while (true) {
-            const token = scanner.scanToken();
-            if (token.line != line) {
-                std.debug.print("{d:0>4} ", .{line orelse 0});
-                line = token.line;
-            } else {
-                std.debug.print("   | ", .{});
-            }
-            std.debug.print("{s} {s}\n", .{ @tagName(token.tokenType), token.lexeme });
+    pub fn interpret(vm: *Vm, source: []u8) InterpretResult {
+        var parser = Parser.init(source);
+        vm.chunk = Chunk.init() catch {return .INTERPRET_COMPILE_ERROR;};
+        vm.ip = vm.chunk.code.items.ptr;
+        parser.compile(&vm.chunk) catch {return .INTERPRET_COMPILE_ERROR;};
+        return vm.run();
 
-            if (token.tokenType == .EOF) {
-                break;
-            }
-        }
-        return .INTERPRET_OK;
+        // var line: ?usize = null;
+        // while (true) {
+        //     const token = scanner.scanToken();
+        //     if (token.line != line) {
+        //         std.debug.print("{d:0>4} ", .{line orelse 0});
+        //         line = token.line;
+        //     } else {
+        //         std.debug.print("   | ", .{});
+        //     }
+        //     std.debug.print("{s} {s}\n", .{ @tagName(token.token_type), token.lexeme });
+        //
+        //     if (token.token_type == .EOF) {
+        //         break;
+        //     }
+        // }
     }
 
     fn run(self: *Vm) InterpretResult {
         while (true) {
-            const instr: OpCode = @enumFromInt(readByte(self));
+            const b = self.readByte();
+            const instr: OpCode = @enumFromInt(b);
             switch (instr) {
                 .OP_RETURN => {
                     const val = self.pop();
