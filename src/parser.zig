@@ -15,6 +15,7 @@ pub const Parser = struct {
     current: Token,
     previous: Token,
     scanner: Scanner,
+    chunk: *Chunk,
     had_error: bool,
     panic_mode: bool,
 
@@ -23,49 +24,72 @@ pub const Parser = struct {
             .current = undefined,
             .previous = undefined,
             .scanner = Scanner.init(source),
+            .chunk = undefined,
             .had_error = false,
             .panic_mode = false,
         };
     }
 
     pub fn compile(self: *Parser, chunk: *Chunk) ParseError!void {
+        self.chunk = chunk;
         self.advance();
-        try self.getExpr(chunk);
+        try self.getExpr();
+
         self.consume(.EOF, "Expected end of expression.");
-        try self.endCompiler(chunk);
+        try self.endCompiler();
     }
 
-    fn getExpr(self: *Parser, chunk: *Chunk) ParseError!void {
+    fn getExpr(self: *Parser) ParseError!void {
         self.advance();
-        try self.getNumber(chunk);
+        try self.getNumber();
     }
 
-    fn getNumber(self: *Parser, chunk: *Chunk) ParseError!void {
+    fn getNumber(self: *Parser) ParseError!void {
         const val = std.fmt.parseFloat(Value, self.previous.lexeme) catch {
             return ParseError.InvalidCharacter;
         };
-        try self.emitConstant(chunk, val);
+        try self.emitConstant(val);
     }
 
-    fn emitOp(self: Parser, chunk: *Chunk, op: OpCode) ParseError!void {
-        chunk.writeOp(op, self.previous.line) catch {
+    fn getGrouping(self: *Parser) ParseError!void {
+        try self.getExpr();
+        self.consume(.RIGHT_PAREN, "Expected ')' after expression.");
+    }
+
+    fn getUnary(self: *Parser) ParseError!void {
+        const op_type = self.previous.token_type;
+
+        try self.getExpr();
+
+        switch (op_type) {
+            .MINUS => self.emitOp(.OP_NEGATE),
+            else => unreachable,
+        }
+    }
+
+    fn parsePrecendence(prec: Precedence) void {
+
+    }
+
+    fn emitOp(self: Parser, op: OpCode) ParseError!void {
+        self.chunk.writeOp(op, self.previous.line) catch {
             return ParseError.OutOfMemory;
         };
     }
 
-    fn emitByte(self: Parser, chunk: *Chunk, byte: u8) ParseError!void {
-        chunk.write(u8, byte, self.previous.line) catch {
+    fn emitByte(self: Parser, byte: u8) ParseError!void {
+        self.chunk.write(u8, byte, self.previous.line) catch {
             return ParseError.OutOfMemory;
         };
     }
 
-    fn emitConstant(self: Parser, chunk: *Chunk, value: Value) ParseError!void {
-        try self.emitOp(chunk, OpCode.OP_CONSTANT);
-        try self.emitByte(chunk, try makeConstant(chunk, value));
+    fn emitConstant(self: Parser, value: Value) ParseError!void {
+        try self.emitOp(OpCode.OP_CONSTANT);
+        try self.emitByte(try makeConstant(self, value));
     }
 
-    fn makeConstant(chunk: *Chunk, value: Value) ParseError!u8 {
-        const addr = chunk.addConstant(value) catch {
+    fn makeConstant(self: Parser, value: Value) ParseError!u8 {
+        const addr = self.chunk.addConstant(value) catch {
             return ParseError.OutOfMemory;
         };
         if (addr > std.math.maxInt(u8)) {
@@ -75,8 +99,8 @@ pub const Parser = struct {
         return @intCast(addr);
     }
 
-    fn endCompiler(self: Parser, chunk: *Chunk) !void {
-        self.emitOp(chunk, OpCode.OP_RETURN) catch {
+    fn endCompiler(self: Parser) !void {
+        self.emitOp(OpCode.OP_RETURN) catch {
             return ParseError.OutOfMemory;
         };
     }
@@ -128,4 +152,18 @@ pub const Parser = struct {
         std.log.err(": {s}", .{msg});
         self.had_error = true;
     }
+};
+
+const Precedence = enum(u8) {
+    None,
+    Assignment,
+    Or,
+    And,
+    Equality,
+    Comparison,
+    Term,
+    Factor,
+    Unary,
+    Call,
+    Primary,
 };
