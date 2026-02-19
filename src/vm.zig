@@ -25,8 +25,9 @@ pub const Vm = struct {
     pub fn interpret(vm: *Vm, source: []u8) InterpretResult {
         var parser = Parser.init(source);
         vm.chunk = Chunk.init() catch {return .INTERPRET_COMPILE_ERROR;};
-        vm.ip = vm.chunk.code.items.ptr;
         parser.compile(&vm.chunk) catch {return .INTERPRET_COMPILE_ERROR;};
+        vm.ip = vm.chunk.code.items.ptr;
+
         return vm.run();
 
         // var line: ?usize = null;

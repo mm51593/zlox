@@ -42,7 +42,7 @@ pub const Parser = struct {
     }
 
     fn getExpr(self: *Parser) ParseError!void {
-        try self.parsePrecendence(@intFromEnum(Precedence.Assignment));
+        try self.parsePrecendence(Precedence.Assignment);
     }
 
     fn getNumber(self: *Parser) ParseError!void {
@@ -60,7 +60,7 @@ pub const Parser = struct {
     fn getBinary(self: *Parser) ParseError!void {
         const op = self.previous.token_type;
         const rule = ParseRule.getRule(op);
-        try self.parsePrecendence(@intFromEnum(rule.precedence) + 1);
+        try self.parsePrecendence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
         switch (op) {
             .PLUS => try self.emitOp(.OP_ADD),
@@ -74,7 +74,7 @@ pub const Parser = struct {
     fn getUnary(self: *Parser) ParseError!void {
         const op = self.previous.token_type;
 
-        try self.parsePrecendence(@intFromEnum(Precedence.Unary));
+        try self.parsePrecendence(Precedence.Unary);
 
         switch (op) {
             .MINUS => try self.emitOp(.OP_NEGATE),
@@ -82,17 +82,16 @@ pub const Parser = struct {
         }
     }
 
-    fn parsePrecendence(self: *Parser, precedence: u8) ParseError!void {
+    fn parsePrecendence(self: *Parser, precedence: Precedence) ParseError!void {
         self.advance();
         const prefix_rule = ParseRule.getRule(self.previous.token_type).prefix;
         const p_rule = prefix_rule orelse return ParseError.ExpectedExpression;
-
         try p_rule(self);
 
-        while (precedence < @intFromEnum(ParseRule.getRule(self.current.token_type).precedence)) {
+        while (@intFromEnum(precedence) <= @intFromEnum(ParseRule.getRule(self.current.token_type).precedence)) {
             self.advance();
             const infix_rule = ParseRule.getRule(self.previous.token_type).infix;
-            const i_rule = infix_rule orelse return ParseError.ExpectedExpression;
+            const i_rule = infix_rule orelse return ParseError.InvalidCharacter;
             try i_rule(self);
         }
     }
