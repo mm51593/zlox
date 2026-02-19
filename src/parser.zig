@@ -1,14 +1,16 @@
 const std = @import("std");
+
 const Chunk = @import("chunk.zig").Chunk;
+const OpCode = @import("op_code.zig").OpCode;
 const Scanner = @import("scanner.zig").Scanner;
 const Token = @import("token.zig").Token;
-const OpCode = @import("op_code.zig").OpCode;
 const Value = @import("value.zig").Value;
 
-pub const ParseError = error {
+pub const ParseError = error{
     TooManyConstants,
     InvalidCharacter,
     OutOfMemory,
+    ExpectedExpression,
 };
 
 pub const Parser = struct {
@@ -40,8 +42,7 @@ pub const Parser = struct {
     }
 
     fn getExpr(self: *Parser) ParseError!void {
-        self.advance();
-        try self.getNumber();
+        try self.parsePrecendence(@intFromEnum(Precedence.Assignment));
     }
 
     fn getNumber(self: *Parser) ParseError!void {
@@ -56,19 +57,44 @@ pub const Parser = struct {
         self.consume(.RIGHT_PAREN, "Expected ')' after expression.");
     }
 
-    fn getUnary(self: *Parser) ParseError!void {
-        const op_type = self.previous.token_type;
+    fn getBinary(self: *Parser) ParseError!void {
+        const op = self.previous.token_type;
+        const rule = ParseRule.getRule(op);
+        try self.parsePrecendence(@intFromEnum(rule.precedence) + 1);
 
-        try self.getExpr();
-
-        switch (op_type) {
-            .MINUS => self.emitOp(.OP_NEGATE),
+        switch (op) {
+            .PLUS => try self.emitOp(.OP_ADD),
+            .MINUS => try self.emitOp(.OP_SUBTRACT),
+            .STAR => try self.emitOp(.OP_MULTIPLY),
+            .SLASH => try self.emitOp(.OP_DIVIDE),
             else => unreachable,
         }
     }
 
-    fn parsePrecendence(prec: Precedence) void {
+    fn getUnary(self: *Parser) ParseError!void {
+        const op = self.previous.token_type;
 
+        try self.parsePrecendence(@intFromEnum(Precedence.Unary));
+
+        switch (op) {
+            .MINUS => try self.emitOp(.OP_NEGATE),
+            else => unreachable,
+        }
+    }
+
+    fn parsePrecendence(self: *Parser, precedence: u8) ParseError!void {
+        self.advance();
+        const prefix_rule = ParseRule.getRule(self.previous.token_type).prefix;
+        const p_rule = prefix_rule orelse return ParseError.ExpectedExpression;
+
+        try p_rule(self);
+
+        while (precedence < @intFromEnum(ParseRule.getRule(self.current.token_type).precedence)) {
+            self.advance();
+            const infix_rule = ParseRule.getRule(self.previous.token_type).infix;
+            const i_rule = infix_rule orelse return ParseError.ExpectedExpression;
+            try i_rule(self);
+        }
     }
 
     fn emitOp(self: Parser, op: OpCode) ParseError!void {
@@ -166,4 +192,72 @@ const Precedence = enum(u8) {
     Unary,
     Call,
     Primary,
+};
+
+const ParseRule = struct {
+    prefix: ParseFn,
+    infix: ParseFn,
+    precedence: Precedence,
+
+    const ParseFn = ?*const fn (*Parser) ParseError!void;
+    fn init(prefix: ParseFn, infix: ParseFn, precedence: Precedence) ParseRule {
+        return ParseRule{
+            .prefix = prefix,
+            .infix = infix,
+            .precedence = precedence,
+        };
+    }
+
+    const group = Parser.getGrouping;
+    const unary = Parser.getUnary;
+    const binary = Parser.getBinary;
+    const number = Parser.getNumber;
+    const p = Precedence;
+    // zig fmt: off
+    fn getRule(token_type: Token.Type) ParseRule {
+        return switch (token_type) {
+            .LEFT_PAREN    => init(group,     null,   p.None),
+            .RIGHT_PAREN   => init(null,      null,   p.None),
+            .LEFT_BRACE    => init(null,      null,   p.None),
+            .RIGHT_BRACE   => init(null,      null,   p.None),
+            .COMMA         => init(null,      null,   p.None),
+            .DOT           => init(null,      null,   p.None),
+            .MINUS         => init(unary,     binary, p.Term),
+            .PLUS          => init(null,      binary, p.Term),
+            .SEMICOLON     => init(null,      null,   p.None),
+            .SLASH         => init(null,      binary, p.Factor),
+            .STAR          => init(null,      binary, p.Factor),
+            .BANG          => init(unary,     null,   p.None),
+            .BANG_EQUAL    => init(null,      binary, p.Comparison),
+            .EQUAL         => init(null,      null,   p.None),
+            .EQUAL_EQUAL   => init(null,      binary, p.Comparison),
+            .GREATER       => init(null,      binary, p.Comparison),
+            .GREATER_EQUAL => init(null,      binary, p.Comparison),
+            .LESS          => init(null,      binary, p.Comparison),
+            .LESS_EQUAL    => init(null,      binary, p.Comparison),
+            .IDENTIFIER    => init(null,      null,   p.None),
+            .STRING        => init(null,      null,   p.None),
+            .NUMBER        => init(number,    null,   p.None),
+            .AND           => init(null,      null,   p.None),
+            .CLASS         => init(null,      null,   p.None),
+            .ELSE          => init(null,      null,   p.None),
+            .FALSE         => init(null,      null,   p.None),
+            .FUN           => init(null,      null,   p.None),
+            .FOR           => init(null,      null,   p.None),
+            .IF            => init(null,      null,   p.None),
+            .NIL           => init(null,      null,   p.None),
+            .OR            => init(null,      null,   p.None),
+            .PRINT         => init(null,      null,   p.None),
+            .RETURN        => init(null,      null,   p.None),
+            .SUPER         => init(null,      null,   p.None),
+            .THIS          => init(null,      null,   p.None),
+            .TRUE          => init(null,      null,   p.None),
+            .VAR           => init(null,      null,   p.None),
+            .WHILE         => init(null,      null,   p.None),
+            .EOF           => init(null,      null,   p.None),
+            .ERROR         => init(null,      null,   p.None),
+            
+        };
+
+    }
 };
