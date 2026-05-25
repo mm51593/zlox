@@ -22,15 +22,17 @@ pub const Parser = struct {
     };
 
     alloc: std.mem.Allocator,
+    obj_list: object.ObjectList,
     current: Token,
     previous: Token,
     diagnostics: std.ArrayList(Diagnostic),
     _chunk: ?Chunk,
     _scanner: Scanner,
 
-    pub fn init(alloc: std.mem.Allocator) !Parser {
+    pub fn init(alloc: std.mem.Allocator, obj_list: object.ObjectList) !Parser {
         return Parser{
             .alloc = alloc,
+            .obj_list = obj_list,
             .current = undefined,
             .previous = undefined,
             .diagnostics = try std.ArrayList(Diagnostic).initCapacity(alloc, 4),
@@ -127,6 +129,7 @@ pub const Parser = struct {
         const chars = try self.alloc.alloc(u8, self.previous.lexeme.len - 2);
         @memcpy(chars, self.previous.lexeme[1..self.previous.lexeme.len - 1]);
         const obj_str = try object.ObjString.init(self.alloc, chars);
+        self.obj_list.insert(&obj_str.obj);
 
         const val = Value{ .Obj = &obj_str.obj };
         try self.emitConstant(val);

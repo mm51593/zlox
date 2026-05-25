@@ -33,13 +33,6 @@ pub const Value = union(ValueTag) {
     pub fn is(self: Value, comptime tag: ValueTag) bool {
         return meta.activeTag(self) == tag;
     }
-
-    pub fn isObjType(self: Value, objType: obj.ObjType) bool {
-        return switch (self) {
-            .Obj => |o| o.type == objType,
-            else => false,
-        };
-    }
 };
 
 pub const ValueArray = struct {

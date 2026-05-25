@@ -4,6 +4,7 @@ const debug = @import("debug.zig");
 const Scanner = @import("scanner.zig").Scanner;
 const Parser = @import("parser.zig").Parser;
 const Vm = @import("vm.zig").Vm;
+const ObjectList = @import("object.zig").ObjectList;
 
 const OpCode = @import("op_code.zig").OpCode;
 
@@ -49,10 +50,11 @@ fn runFile(filename: []const u8, alloc: std.mem.Allocator, io: std.Io) !void {
 
 fn interpret(line: []u8, alloc: std.mem.Allocator) !void {
     const scanner = Scanner.init(line);
-    var parser = try Parser.init(alloc);
+    const obj_list = ObjectList.init();
+    var parser = try Parser.init(alloc, obj_list);
     const chunk = try parser.compile(alloc, scanner);
     if (chunk) |valid_chunk| {
-        var vm = Vm.init(alloc);
+        var vm = Vm.init(alloc, obj_list);
         vm.interpret(valid_chunk) catch |err|
             std.debug.print("Runtime error: {}\n", .{err});
     } else {

@@ -13,6 +13,11 @@ pub const ObjType = enum {
 
 pub const Obj = struct {
     type: ObjType,
+    next: ?*Obj,
+
+    pub fn is(self: Obj, objType: ObjType) bool {
+        return self.type == objType;
+    }
 
     pub fn as(self: *const Obj, comptime T: type) ObjError!*T {
         if (self.type != T.tag) {
@@ -45,9 +50,14 @@ pub const ObjString = struct {
 
     pub fn init(alloc: Allocator, chars: []u8) !*ObjString {
         var p = try alloc.create(ObjString);
-        p.obj = .{ .type = .OBJ_STRING };
+        p.obj = .{ .type = .OBJ_STRING, .next = null };
         p.chars = chars;
         return p;
+    }
+
+    pub fn deinit(self: *ObjString, alloc: Allocator) void {
+        alloc.destroy(self.chars);
+        alloc.destroy(self);
     }
 
     pub fn print(self: *ObjString) void {
@@ -66,5 +76,29 @@ pub const ObjString = struct {
         @memcpy(chars[a.chars.len..], b.chars.ptr);
 
         return try ObjString.init(alloc, chars);
+    }
+};
+
+pub const ObjectList = struct {
+    head: ?*Obj,
+
+    pub fn init() ObjectList {
+        return ObjectList{ .head = null };
+    }
+
+    pub fn insert(self: *ObjectList, o: *Obj) void {
+        o.next = self.head;
+        self.head = o;
+    }
+
+    pub fn deinit(self: *ObjectList, alloc: Allocator) void {
+        while (self.head) |node| {
+            switch (node.type) {
+                .OBJ_STRING => {
+                    const o = try node.as(ObjString);
+                    o.deinit(alloc);
+                },
+            }
+        }
     }
 };
