@@ -64,7 +64,7 @@ pub const ObjString = struct {
         debug.print("{s}\n", .{self.chars});
     }
 
-    pub fn cmp(a: *ObjString, b: *ObjString) Order {
+    pub fn cmp(a: ObjString, b: ObjString) Order {
         const res = mem.order(u8, a.chars, b.chars);
         return res;
     }
