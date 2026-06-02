@@ -4,7 +4,7 @@ const Value = @import("value.zig").Value;
 const HashMap = @import("std").HashMap;
 const Allocator = @import("std").mem.Allocator;
 
-const TABLE_MAX_LOAD = 0.75;
+const TABLE_MAX_LOAD = 75;
 
 const TableCtx = struct {
     fn hash(_: TableCtx, s: ObjString) u64 {

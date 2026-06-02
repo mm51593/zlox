@@ -12,6 +12,7 @@ const ValueTag = @import("value.zig").ValueTag;
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
 const ObjectList = @import("object.zig").ObjectList;
+const StringTable = @import("string_table.zig").StringTable;
 
 pub const RuntimeError = error{
     InvalidOperand,
@@ -26,17 +27,24 @@ pub const Vm = struct {
     stack: [STACK_MAX]Value,
     sp: [*]Value,
     alloc: Allocator,
-    objects: ObjectList,
+    objects: *ObjectList,
+    str_table: *StringTable,
 
-    pub fn init(alloc: Allocator, obj_list: ObjectList) Vm {
-        var vm = Vm{ .chunk = undefined, .ip = undefined, .stack = undefined, .sp = undefined, .alloc = alloc, .objects = obj_list };
+    pub fn init(alloc: Allocator, obj_list: *ObjectList, str_table: *StringTable) Vm {
+        var vm = Vm{
+            .chunk = undefined,
+            .ip = undefined,
+            .stack = undefined,
+            .sp = undefined,
+            .alloc = alloc,
+            .objects = obj_list,
+            .str_table = str_table,
+        };
         vm.sp = &vm.stack;
         return vm;
     }
 
-    pub fn deinit(self: Vm) void {
-        self.objects.deinit(self.alloc);
-    }
+    pub fn deinit(_: Vm) void {}
 
     pub fn interpret(vm: *Vm, chunk: Chunk) !void {
         vm.chunk = chunk;
@@ -74,10 +82,11 @@ pub const Vm = struct {
                     if (a.is(.Number) and b.is(.Number)) {
                         self.push(try interpretNumBinary(a, b, instr));
                     } else if (a.is(.Obj) and (try a.as(.Obj)).is(.OBJ_STRING) and
-                        b.is(.Obj) and (try b.as(.Obj)).is(.OBJ_STRING)) {
+                        b.is(.Obj) and (try b.as(.Obj)).is(.OBJ_STRING))
+                    {
                         const a_str = try (try a.as(.Obj)).as(ObjString);
                         const b_str = try (try b.as(.Obj)).as(ObjString);
-                        const concat = try ObjString.concatenate(self.alloc, a_str, b_str);
+                        const concat = try ObjString.concatenate(self.alloc, a_str, b_str, self.str_table);
                         self.objects.insert(&concat.obj);
                         self.push(try pack(&concat.obj));
                     } else {

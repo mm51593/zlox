@@ -6,6 +6,7 @@ const Scanner = @import("scanner.zig").Scanner;
 const Token = @import("token.zig").Token;
 const Value = @import("value.zig").Value;
 const object = @import("object.zig");
+const StringTable = @import("string_table.zig").StringTable;
 
 pub const Parser = struct {
     pub const Error = union(enum) {
@@ -22,20 +23,22 @@ pub const Parser = struct {
     };
 
     alloc: std.mem.Allocator,
-    obj_list: object.ObjectList,
+    obj_list: *object.ObjectList,
     current: Token,
     previous: Token,
     diagnostics: std.ArrayList(Diagnostic),
+    str_table: *StringTable,
     _chunk: ?Chunk,
     _scanner: Scanner,
 
-    pub fn init(alloc: std.mem.Allocator, obj_list: object.ObjectList) !Parser {
+    pub fn init(alloc: std.mem.Allocator, obj_list: *object.ObjectList, str_table: *StringTable) !Parser {
         return Parser{
             .alloc = alloc,
             .obj_list = obj_list,
             .current = undefined,
             .previous = undefined,
             .diagnostics = try std.ArrayList(Diagnostic).initCapacity(alloc, 4),
+            .str_table = str_table,
             ._chunk = undefined,
             ._scanner = undefined,
         };
@@ -126,12 +129,23 @@ pub const Parser = struct {
     }
 
     fn getStr(self: *Parser) !void {
-        const chars = try self.alloc.alloc(u8, self.previous.lexeme.len - 2);
-        @memcpy(chars, self.previous.lexeme[1..self.previous.lexeme.len - 1]);
-        const obj_str = try object.ObjString.init(self.alloc, chars);
-        self.obj_list.insert(&obj_str.obj);
+        const chars = self.previous.lexeme[1 .. self.previous.lexeme.len - 1];
+        const exists = self.str_table.get(chars);
 
-        const val = Value{ .Obj = &obj_str.obj };
+        const str = if (exists) |s|
+            s
+        else blk: {
+            const chars_copy = try self.alloc.alloc(u8, self.previous.lexeme.len - 2);
+            @memcpy(chars_copy, chars);
+
+            const str = (try object.ObjString.init(self.alloc, chars_copy, self.str_table)).str;
+            self.obj_list.insert(&str.obj);
+
+            break :blk str;
+        };
+
+
+        const val = Value{ .Obj = &str.obj };
         try self.emitConstant(val);
     }
 

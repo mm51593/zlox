@@ -2,8 +2,9 @@ const Allocator = @import("std").mem.Allocator;
 const Order = @import("std").math.Order;
 const debug = @import("std").debug;
 const mem = @import("std").mem;
+const StringTable = @import("string_table.zig").StringTable;
 
-pub const ObjError = error {
+pub const ObjError = error{
     InvalidType,
 };
 
@@ -46,17 +47,33 @@ pub const Obj = struct {
 pub const ObjString = struct {
     pub const tag = ObjType.OBJ_STRING;
     obj: Obj,
-    chars: []u8,
+    chars: []const u8,
 
-    pub fn init(alloc: Allocator, chars: []u8) !*ObjString {
-        var p = try alloc.create(ObjString);
-        p.obj = .{ .type = .OBJ_STRING, .next = null };
-        p.chars = chars;
-        return p;
+    pub const InitResult = struct {
+        str: *ObjString,
+        status: enum {
+            Existing,
+            New,
+        },
+    };
+
+    pub fn init(alloc: Allocator, chars: []const u8, table: *StringTable) !InitResult {
+        if (table.get(chars)) |str| {
+            return .{ .str = str, .status = .Existing };
+        }
+
+        const p = try alloc.create(ObjString);
+        p.* = .{
+            .obj = .{ .type = .OBJ_STRING, .next = null },
+            .chars = chars,
+        };
+        try table.put(p.chars, p);
+
+        return .{ .str = p, .status = .New };
     }
 
     pub fn deinit(self: *ObjString, alloc: Allocator) void {
-        alloc.destroy(self.chars);
+        alloc.free(self.chars);
         alloc.destroy(self);
     }
 
@@ -64,18 +81,22 @@ pub const ObjString = struct {
         debug.print("{s}\n", .{self.chars});
     }
 
-    pub fn cmp(a: ObjString, b: ObjString) Order {
-        const res = mem.order(u8, a.chars, b.chars);
-        return res;
+    pub fn cmp(a: *ObjString, b: *ObjString) Order {
+        return if (a == b) .eq else .lt;
     }
 
-    pub fn concatenate(alloc: Allocator, a: *ObjString, b: *ObjString) !*ObjString {
+    pub fn concatenate(alloc: Allocator, a: *ObjString, b: *ObjString, str_table: *StringTable) !*ObjString {
         const len = a.chars.len + b.chars.len;
         const chars = try alloc.alloc(u8, len);
         @memcpy(chars, a.chars.ptr);
         @memcpy(chars[a.chars.len..], b.chars.ptr);
 
-        return try ObjString.init(alloc, chars);
+        const res = try ObjString.init(alloc, chars, str_table);
+        if (res.status == .Existing) {
+            alloc.free(chars);
+        }
+
+        return res.str;
     }
 };
 
@@ -86,13 +107,9 @@ pub const ObjectList = struct {
         return ObjectList{ .head = null };
     }
 
-    pub fn insert(self: *ObjectList, o: *Obj) void {
-        o.next = self.head;
-        self.head = o;
-    }
-
-    pub fn deinit(self: *ObjectList, alloc: Allocator) void {
+    pub fn deinit(self: *ObjectList, alloc: Allocator) !void {
         while (self.head) |node| {
+            self.head = node.next;
             switch (node.type) {
                 .OBJ_STRING => {
                     const o = try node.as(ObjString);
@@ -100,5 +117,19 @@ pub const ObjectList = struct {
                 },
             }
         }
+    }
+
+    pub fn create(self: *ObjectList, alloc: Allocator, tag: ObjType) !*Obj {
+        const obj = switch (tag) {
+            .OBJ_STRING => (try alloc.create(ObjString)).obj,
+        };
+
+        self.insert(obj);
+        return obj;
+    }
+
+    pub fn insert(self: *ObjectList, o: *Obj) void {
+        o.next = self.head;
+        self.head = o;
     }
 };
