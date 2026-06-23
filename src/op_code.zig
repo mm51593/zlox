@@ -15,6 +15,7 @@ comptime {
 pub const OpCode = enum(BYTE) {
     // simple
     OP_RETURN,
+    OP_PRINT,
 
     // unary
     OP_NEGATE,

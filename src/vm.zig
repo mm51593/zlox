@@ -59,10 +59,11 @@ pub const Vm = struct {
             const instr: OpCode = @enumFromInt(word);
             switch (instr) {
                 .OP_RETURN => {
-                    const val = self.pop();
-                    std.debug.print("Return: ", .{});
-                    try printValue(val);
                     return;
+                },
+                .OP_PRINT => {
+                    const val = self.pop();
+                    try printValue(val);
                 },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
@@ -210,7 +211,7 @@ pub const Vm = struct {
         switch (val) {
             .Number => |n| std.debug.print("{}\n", .{n}),
             .Bool => |b| std.debug.print("{}\n", .{b}),
-            .Nil => std.debug.print("nil", .{}),
+            .Nil => std.debug.print("nil\n", .{}),
             .Obj => |o| try o.print(),
         }
     }

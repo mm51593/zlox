@@ -53,12 +53,30 @@ pub const Parser = struct {
         self._scanner = scanner;
 
         try self.advance();
-        try self.getExpr();
 
-        try self.consume(.EOF);
+        while (!try self.match(.EOF)) {
+            try self.getDecl();
+        }
+
         try self.endCompiler();
 
         return self._chunk;
+    }
+
+    fn getDecl(self: *Parser) !void {
+        try self.getStmt();
+    }
+
+    fn getStmt(self: *Parser) !void {
+        if (try self.match(.PRINT)) {
+            try self.getPrintStmt();
+        }
+    }
+
+    fn getPrintStmt(self: *Parser) !void {
+        try self.getExpr();
+        try self.consume(.SEMICOLON);
+        try self.emitOp(.OP_PRINT);
     }
 
     fn getExpr(self: *Parser) !void {
@@ -224,6 +242,15 @@ pub const Parser = struct {
         }
 
         try self.reportErrorAtCurrent(.{ .UnexpectedToken = .{ .expected = token_type } });
+    }
+
+    fn match(self: *Parser, token_type: Token.Type) !bool {
+        if (self.current.token_type != token_type) {
+            return false;
+        }
+
+        try self.advance();
+        return true;
     }
 
     fn reportErrorAtCurrent(self: *Parser, err: Error) !void {
