@@ -27,6 +27,7 @@ pub const Parser = struct {
     current: Token,
     previous: Token,
     diagnostics: std.ArrayList(Diagnostic),
+    panic_mode: bool,
     str_table: *StringTable,
     _chunk: ?Chunk,
     _scanner: Scanner,
@@ -38,6 +39,7 @@ pub const Parser = struct {
             .current = undefined,
             .previous = undefined,
             .diagnostics = try std.ArrayList(Diagnostic).initCapacity(alloc, 4),
+            .panic_mode = false,
             .str_table = str_table,
             ._chunk = undefined,
             ._scanner = undefined,
@@ -65,11 +67,18 @@ pub const Parser = struct {
 
     fn getDecl(self: *Parser) !void {
         try self.getStmt();
+
+        if (self.panic_mode) {
+            try self.synchronize();
+        }
     }
 
     fn getStmt(self: *Parser) !void {
         if (try self.match(.PRINT)) {
             try self.getPrintStmt();
+        }
+        else {
+            try self.getExprStmt();
         }
     }
 
@@ -77,6 +86,12 @@ pub const Parser = struct {
         try self.getExpr();
         try self.consume(.SEMICOLON);
         try self.emitOp(.OP_PRINT);
+    }
+
+    fn getExprStmt(self: *Parser) !void {
+        try self.getExpr();
+        try self.consume(.SEMICOLON);
+        try self.emitOp(.OP_POP);
     }
 
     fn getExpr(self: *Parser) !void {
@@ -262,17 +277,26 @@ pub const Parser = struct {
     }
 
     fn reportErrorAt(self: *Parser, token: Token, err: Error) !void {
-        self.deallocChunk();
-
+        self.panic_mode = true;
         try self.diagnostics.append(self.alloc, Diagnostic{ .error_type = err, .token = token });
     }
 
-    fn deallocChunk(self: *Parser) void {
-        if (self._chunk) |*chunk| {
-            chunk.deinit();
-        }
+    fn synchronize(self: *Parser) !void {
+        self.panic_mode = false;
 
-        self._chunk = null;
+        while (self.current.token_type != .EOF) {
+            if (self.previous.token_type == .SEMICOLON) {
+                return;
+            }
+            switch (self.current.token_type) {
+                .CLASS, .FUN, .VAR, .FOR, .IF, .WHILE, .PRINT, .RETURN => {
+                    return;
+                },
+                else => {}
+            }
+
+            try self.advance();
+        }
     }
 };
 

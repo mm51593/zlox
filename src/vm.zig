@@ -65,6 +65,9 @@ pub const Vm = struct {
                     const val = self.pop();
                     try printValue(val);
                 },
+                .OP_POP => {
+                    _ = self.pop();
+                },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
                     const negated = -val;

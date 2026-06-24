@@ -64,13 +64,18 @@ fn interpret(line: []u8, alloc: std.mem.Allocator, vm: *Vm, parser: *Parser) !vo
     const scanner = Scanner.init(line);
 
     var chunk = try parser.compile(alloc, scanner);
-    if (chunk) |valid_chunk| {
-        vm.interpret(valid_chunk) catch |err|
+    if (!parser.panic_mode) {
+        vm.interpret(chunk.?) catch |err|
             std.debug.print("Runtime error: {}\n", .{err});
     } else {
         for (parser.diagnostics.items) |diag| {
-            std.debug.print("Line {}: syntax error: {s}\n", .{ diag.token.line, @tagName(diag.error_type) });
+            std.debug.print("Line {}: syntax error: {s} near token {s}\n", .{
+                diag.token.line,
+                @tagName(diag.error_type),
+                diag.token.lexeme,
+            });
         }
+        parser.diagnostics.clearRetainingCapacity();
     }
     if (chunk) |*temp| {
         temp.deinit();
