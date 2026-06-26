@@ -17,6 +17,7 @@ pub const OpCode = enum(BYTE) {
     OP_RETURN,
     OP_PRINT,
     OP_POP,
+    OP_DEFINE_GLOBAL,
 
     // unary
     OP_NEGATE,

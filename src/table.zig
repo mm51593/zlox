@@ -7,48 +7,47 @@ const Allocator = @import("std").mem.Allocator;
 const TABLE_MAX_LOAD = 75;
 
 const TableCtx = struct {
-    fn hash(_: TableCtx, s: ObjString) u64 {
-        var res = 2166136261;
+    pub fn hash(_: TableCtx, s: *ObjString) u64 {
+        var res: u64 = 2166136261;
         for (s.chars) |c| {
             res ^= c;
-            res *= 16777619;
+            res *%= 16777619;
         }
         return res;
     }
 
-    fn eql(_: TableCtx, s1: ObjString, s2: ObjString) bool {
+    pub fn eql(_: TableCtx, s1: *ObjString, s2: *ObjString) bool {
         return ObjString.cmp(s1, s2) == .eq;
     }
 };
 
-const Table = struct {
-    entires: HashMap(*ObjString, Value, TableCtx, TABLE_MAX_LOAD),
+pub const Table = struct {
+    entries: HashMap(*ObjString, Value, TableCtx, TABLE_MAX_LOAD),
 
     pub fn init(self: *Table, alloc: Allocator) void {
-        self.entires = .init(alloc);
+        self.entries = .init(alloc);
     }
 
     pub fn deinit(self: *Table) void {
-        self.entires.deinit();
+        self.entries.deinit();
     }
 
-    pub fn put(self: *Table, key: *ObjString, value: Value) !bool {
-        const res = try self.entires.getOrPut(key, value);
-        return res.found_existing;
+    pub fn put(self: *Table, key: *ObjString, value: Value) !void {
+        try self.entries.put(key, value);
     }
 
     pub fn addAll(from: *Table, to: *Table) !void {
-        var it = from.entires.iterator();
+        var it = from.entries.iterator();
         while (it.next()) |entry| {
             try to.put(entry.key_ptr, entry.value_ptr);
         }
     }
 
     pub fn get(self: *Table, key: *ObjString) ?Value {
-        return self.entires.get(key);
+        return self.entries.get(key);
     }
 
     pub fn delete(self: *Table, key: *ObjString) bool {
-        return self.entires.remove(key);
+        return self.entries.remove(key);
     }
 };

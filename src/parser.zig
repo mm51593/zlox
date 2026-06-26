@@ -66,7 +66,11 @@ pub const Parser = struct {
     }
 
     fn getDecl(self: *Parser) !void {
-        try self.getStmt();
+        if (try self.match(.VAR)) {
+            try self.getVarDecl();
+        } else {
+            try self.getStmt();
+        }
 
         if (self.panic_mode) {
             try self.synchronize();
@@ -76,8 +80,7 @@ pub const Parser = struct {
     fn getStmt(self: *Parser) !void {
         if (try self.match(.PRINT)) {
             try self.getPrintStmt();
-        }
-        else {
+        } else {
             try self.getExprStmt();
         }
     }
@@ -86,6 +89,20 @@ pub const Parser = struct {
         try self.getExpr();
         try self.consume(.SEMICOLON);
         try self.emitOp(.OP_PRINT);
+    }
+
+    fn getVarDecl(self: *Parser) !void {
+        const global = try self.parseVariable();
+
+        if (try self.match(.EQUAL)) {
+            try self.getExpr();
+        } else {
+            try self.emitConstant(.Nil);
+        }
+
+        try self.consume(.SEMICOLON);
+
+        try self.defineVariable(global);
     }
 
     fn getExprStmt(self: *Parser) !void {
@@ -177,7 +194,6 @@ pub const Parser = struct {
             break :blk str;
         };
 
-
         const val = Value{ .Obj = &str.obj };
         try self.emitConstant(val);
     }
@@ -201,6 +217,22 @@ pub const Parser = struct {
                 return try self.reportError(.ExpectedExpression);
             }
         }
+    }
+
+    fn parseVariable(self: *Parser) !u8 {
+        try self.consume(.IDENTIFIER);
+        const ident = self.previous;
+        const ident_string = (try object.ObjString.init(
+            self.alloc,
+            ident.lexeme,
+            self.str_table,
+        )).str;
+        return try self.makeConstant(.{ .Obj = &ident_string.obj });
+    }
+
+    fn defineVariable(self: *Parser, global: u8) !void {
+        try self.emitOp(.OP_DEFINE_GLOBAL);
+        try self.emitByte(global);
     }
 
     fn emitOp(self: *Parser, op: OpCode) !void {
@@ -292,7 +324,7 @@ pub const Parser = struct {
                 .CLASS, .FUN, .VAR, .FOR, .IF, .WHILE, .PRINT, .RETURN => {
                     return;
                 },
-                else => {}
+                else => {},
             }
 
             try self.advance();

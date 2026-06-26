@@ -13,6 +13,7 @@ const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
 const ObjectList = @import("object.zig").ObjectList;
 const StringTable = @import("string_table.zig").StringTable;
+const Table = @import("table.zig").Table;
 
 pub const RuntimeError = error{
     InvalidOperand,
@@ -29,6 +30,7 @@ pub const Vm = struct {
     alloc: Allocator,
     objects: *ObjectList,
     str_table: *StringTable,
+    globals: Table,
 
     pub fn init(alloc: Allocator, obj_list: *ObjectList, str_table: *StringTable) Vm {
         var vm = Vm{
@@ -39,12 +41,16 @@ pub const Vm = struct {
             .alloc = alloc,
             .objects = obj_list,
             .str_table = str_table,
+            .globals = undefined,
         };
+        vm.globals.init(alloc);
         vm.sp = &vm.stack;
         return vm;
     }
 
-    pub fn deinit(_: Vm) void {}
+    pub fn deinit(self: *Vm) void {
+        self.globals.deinit();
+    }
 
     pub fn interpret(vm: *Vm, chunk: Chunk) !void {
         vm.chunk = chunk;
@@ -68,6 +74,11 @@ pub const Vm = struct {
                 .OP_POP => {
                     _ = self.pop();
                 },
+                .OP_DEFINE_GLOBAL => {
+                    const name_obj: *Obj = try self.readConstant().as(.Obj);
+                    const name_str = try name_obj.as(ObjString);
+                    _ = try self.globals.put(name_str, self.pop());
+                },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
                     const negated = -val;
@@ -78,8 +89,7 @@ pub const Vm = struct {
                     const negated = try isFalsey(val);
                     self.push(try pack(negated));
                 },
-                .OP_ADD,
-                => {
+                .OP_ADD => {
                     const b = self.pop();
                     const a = self.pop();
 
