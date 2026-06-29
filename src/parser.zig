@@ -15,6 +15,7 @@ pub const Parser = struct {
         NotANumber,
         UnexpectedToken: struct { expected: Token.Type },
         ExpectedExpression,
+        InvalidAsignmentTarget,
     };
 
     pub const Diagnostic = struct {
@@ -115,19 +116,19 @@ pub const Parser = struct {
         try self.parsePrecendence(.Asgn);
     }
 
-    fn getNum(self: *Parser) !void {
+    fn getNum(self: *Parser, _: bool) !void {
         const val = std.fmt.parseFloat(f64, self.previous.lexeme) catch {
             return try self.reportError(.NotANumber);
         };
         try self.emitConstant(Value{ .Number = val });
     }
 
-    fn getGrp(self: *Parser) !void {
+    fn getGrp(self: *Parser, _: bool) !void {
         try self.getExpr();
         try self.consume(.RIGHT_PAREN);
     }
 
-    fn getBin(self: *Parser) !void {
+    fn getBin(self: *Parser,  _: bool) !void {
         const op = self.previous.token_type;
         const rule = ParseRule.getRule(op);
         const next_precedence: Precedence = @enumFromInt(@intFromEnum(rule.prec) + 1);
@@ -157,7 +158,7 @@ pub const Parser = struct {
         }
     }
 
-    fn getLit(self: *Parser) !void {
+    fn getLit(self: *Parser, _: bool) !void {
         switch (self.previous.token_type) {
             .TRUE => try self.emitOp(.OP_TRUE),
             .FALSE => try self.emitOp(.OP_FALSE),
@@ -166,7 +167,7 @@ pub const Parser = struct {
         }
     }
 
-    fn getUnar(self: *Parser) !void {
+    fn getUnar(self: *Parser, _: bool) !void {
         const op = self.previous.token_type;
 
         try self.parsePrecendence(.Unar);
@@ -178,7 +179,7 @@ pub const Parser = struct {
         }
     }
 
-    fn getStr(self: *Parser) !void {
+    fn getStr(self: *Parser, _: bool) !void {
         const chars = self.previous.lexeme[1 .. self.previous.lexeme.len - 1];
         const exists = self.str_table.get(chars);
 
@@ -198,28 +199,33 @@ pub const Parser = struct {
         try self.emitConstant(val);
     }
 
-    fn getVar(self: *Parser) !void {
-        try self.getNamedVariable();
+    fn getVar(self: *Parser, can_assign: bool) !void {
+        try self.getNamedVariable(can_assign);
     }
 
     fn parsePrecendence(self: *Parser, prec: Precedence) !void {
         try self.advance();
+        const can_assign = prec.cmp(.Asgn) <= 0; 
         const prefix_rule = ParseRule.getRule(self.previous.token_type).prefix;
 
         if (prefix_rule) |valid_prefix_rule| {
-            try valid_prefix_rule(self);
+            try valid_prefix_rule(self, can_assign);
         } else {
             return try self.reportError(.ExpectedExpression);
         }
+
 
         while (prec.cmp(ParseRule.getRule(self.current.token_type).prec) <= 0) {
             try self.advance();
             const infix_rule = ParseRule.getRule(self.previous.token_type).infix;
             if (infix_rule) |valid_infix_rule| {
-                try valid_infix_rule(self);
+                try valid_infix_rule(self, can_assign);
             } else {
                 return try self.reportError(.ExpectedExpression);
             }
+        }
+        if (can_assign and try self.match(.EQUAL)) {
+            try self.reportErrorAtCurrent(.InvalidAsignmentTarget);
         }
     }
 
@@ -242,10 +248,17 @@ pub const Parser = struct {
         try self.emitByte(global);
     }
 
-    fn getNamedVariable(self: *Parser) !void {
+    fn getNamedVariable(self: *Parser, can_assign: bool) !void {
         const arg = try self.makeIdentifier(self.previous);
-        try self.emitOp(.OP_GET_GLOBAL);
-        try self.emitByte(arg);
+
+        if (can_assign and try self.match(.EQUAL)) {
+            try self.getExpr();
+            try self.emitOp(.OP_SET_GLOBAL);
+            try self.emitByte(arg);
+        } else {
+            try self.emitOp(.OP_GET_GLOBAL);
+            try self.emitByte(arg);
+        }
     }
 
     fn emitOp(self: *Parser, op: OpCode) !void {
@@ -363,7 +376,7 @@ const Precedence = enum(i8) {
     }
 };
 
-const ParseFn = *const fn (*Parser) anyerror!void;
+const ParseFn = *const fn (*Parser, bool) anyerror!void;
 const ParseRule = struct {
     prefix: ?ParseFn,
     infix: ?ParseFn,

@@ -32,8 +32,11 @@ pub const Table = struct {
         self.entries.deinit();
     }
 
-    pub fn put(self: *Table, key: *ObjString, value: Value) !void {
-        try self.entries.put(key, value);
+    pub fn put(self: *Table, key: *ObjString, value: Value) !bool {
+        const res = try self.entries.getOrPut(key);
+        res.value_ptr.* = value;
+
+        return res.found_existing;
     }
 
     pub fn addAll(from: *Table, to: *Table) !void {

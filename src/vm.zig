@@ -85,10 +85,20 @@ pub const Vm = struct {
                         return RuntimeError.UndefinedVariable;
                     }
                 },
+                .OP_SET_GLOBAL => {
+                    const name_obj: *Obj = try self.readConstant().as(.Obj);
+                    const name_str = try name_obj.as(ObjString);
+
+                    const exists = try self.globals.put(name_str, self.peek());
+                    if (!exists) {
+                        _ = self.globals.delete(name_str);
+                        return RuntimeError.UndefinedVariable;
+                    }
+                },
                 .OP_DEFINE_GLOBAL => {
                     const name_obj: *Obj = try self.readConstant().as(.Obj);
                     const name_str = try name_obj.as(ObjString);
-                    _ = try self.globals.put(name_str, self.pop());
+                    _ = try self.globals.put(name_str, self.pop()); // this pop might be dangerous
                 },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
@@ -165,6 +175,10 @@ pub const Vm = struct {
         self.sp -= 1;
         const val = self.stack[self.sp];
         return val;
+    }
+
+    fn peek(self: Vm) Value {
+        return self.stack[self.sp - 1];
     }
 
     fn printStack(self: Vm) void {
