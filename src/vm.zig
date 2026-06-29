@@ -18,6 +18,7 @@ const Table = @import("table.zig").Table;
 pub const RuntimeError = error{
     InvalidOperand,
     BufferTooSmall,
+    UndefinedVariable,
 };
 
 const STACK_MAX = 256;
@@ -26,7 +27,7 @@ pub const Vm = struct {
     chunk: Chunk,
     ip: [*]u8,
     stack: [STACK_MAX]Value,
-    sp: [*]Value,
+    sp: usize,
     alloc: Allocator,
     objects: *ObjectList,
     str_table: *StringTable,
@@ -37,14 +38,13 @@ pub const Vm = struct {
             .chunk = undefined,
             .ip = undefined,
             .stack = undefined,
-            .sp = undefined,
+            .sp = 0,
             .alloc = alloc,
             .objects = obj_list,
             .str_table = str_table,
             .globals = undefined,
         };
         vm.globals.init(alloc);
-        vm.sp = &vm.stack;
         return vm;
     }
 
@@ -73,6 +73,17 @@ pub const Vm = struct {
                 },
                 .OP_POP => {
                     _ = self.pop();
+                },
+                .OP_GET_GLOBAL => {
+                    const name_obj: *Obj = try self.readConstant().as(.Obj);
+                    const name_str = try name_obj.as(ObjString);
+
+                    const opt_val = self.globals.get(name_str);
+                    if (opt_val) |val| {
+                        self.push(val);
+                    } else {
+                        return RuntimeError.UndefinedVariable;
+                    }
                 },
                 .OP_DEFINE_GLOBAL => {
                     const name_obj: *Obj = try self.readConstant().as(.Obj);
@@ -146,18 +157,19 @@ pub const Vm = struct {
     }
 
     fn push(self: *Vm, val: Value) void {
-        self.sp[0] = val;
+        self.stack[self.sp] = val;
         self.sp += 1;
     }
 
     fn pop(self: *Vm) Value {
         self.sp -= 1;
-        return self.sp[0];
+        const val = self.stack[self.sp];
+        return val;
     }
 
     fn printStack(self: Vm) void {
-        for (&self.stack..self.sp) |slot| {
-            std.debug.print("[{}]", .{slot.*});
+        for (0..self.sp) |idx| {
+            std.debug.print("[{}]", .{self.stack[idx]});
         }
     }
 

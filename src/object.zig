@@ -63,9 +63,10 @@ pub const ObjString = struct {
         }
 
         const p = try alloc.create(ObjString);
+        const chars_copy = try alloc.dupe(u8, chars);
         p.* = .{
             .obj = .{ .type = .OBJ_STRING, .next = null },
-            .chars = chars,
+            .chars = chars_copy,
         };
         try table.put(p.chars, p);
 

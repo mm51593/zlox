@@ -8,7 +8,7 @@ pub const StringTable = struct {
     entires: StringHashMap(*ObjString),
 
     pub fn init(alloc: Allocator) StringTable {
-        return StringTable{ .entires = StringHashMap(*ObjString).init(alloc) };
+        return StringTable{ .entires = .init(alloc) };
     }
 
     pub fn deinit(self: *StringTable) void {

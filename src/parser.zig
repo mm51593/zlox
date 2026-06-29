@@ -198,6 +198,10 @@ pub const Parser = struct {
         try self.emitConstant(val);
     }
 
+    fn getVar(self: *Parser) !void {
+        try self.getNamedVariable();
+    }
+
     fn parsePrecendence(self: *Parser, prec: Precedence) !void {
         try self.advance();
         const prefix_rule = ParseRule.getRule(self.previous.token_type).prefix;
@@ -219,20 +223,29 @@ pub const Parser = struct {
         }
     }
 
-    fn parseVariable(self: *Parser) !u8 {
-        try self.consume(.IDENTIFIER);
-        const ident = self.previous;
+    fn makeIdentifier(self: *Parser, name: Token) !u8 {
         const ident_string = (try object.ObjString.init(
             self.alloc,
-            ident.lexeme,
+            name.lexeme,
             self.str_table,
-        )).str;
-        return try self.makeConstant(.{ .Obj = &ident_string.obj });
+        ));
+        return try self.makeConstant(.{ .Obj = &ident_string.str.obj });
+    }
+
+    fn parseVariable(self: *Parser) !u8 {
+        try self.consume(.IDENTIFIER);
+        return try self.makeIdentifier(self.previous);
     }
 
     fn defineVariable(self: *Parser, global: u8) !void {
         try self.emitOp(.OP_DEFINE_GLOBAL);
         try self.emitByte(global);
+    }
+
+    fn getNamedVariable(self: *Parser) !void {
+        const arg = try self.makeIdentifier(self.previous);
+        try self.emitOp(.OP_GET_GLOBAL);
+        try self.emitByte(arg);
     }
 
     fn emitOp(self: *Parser, op: OpCode) !void {
@@ -388,7 +401,7 @@ const ParseRule = struct {
                 .GREATER_EQUAL => rule(null,      p.getBin, .Cmp ),
                 .LESS          => rule(null,      p.getBin, .Cmp ),
                 .LESS_EQUAL    => rule(null,      p.getBin, .Cmp ),
-                .IDENTIFIER    => rule(null,      null,     .None),
+                .IDENTIFIER    => rule(p.getVar,  null,     .None),
                 .STRING        => rule(p.getStr,  null,     .None),
                 .NUMBER        => rule(p.getNum,  null,     .None),
                 .AND           => rule(null,      null,     .None),
