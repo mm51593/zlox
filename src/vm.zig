@@ -95,6 +95,14 @@ pub const Vm = struct {
                         return RuntimeError.UndefinedVariable;
                     }
                 },
+                .OP_GET_LOCAL => {
+                    const slot = self.readByte();
+                    self.push(self.stack[slot]);
+                },
+                .OP_SET_LOCAL => {
+                    const slot = self.readByte();
+                    self.stack[slot] = self.peek();
+                },
                 .OP_DEFINE_GLOBAL => {
                     const name_obj: *Obj = try self.readConstant().as(.Obj);
                     const name_str = try name_obj.as(ObjString);

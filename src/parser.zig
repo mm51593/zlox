@@ -7,6 +7,9 @@ const Token = @import("token.zig").Token;
 const Value = @import("value.zig").Value;
 const object = @import("object.zig");
 const StringTable = @import("string_table.zig").StringTable;
+const Local = @import("local.zig").Local;
+
+const MAX_LOCAL_COUNT = std.math.maxInt(u8);
 
 pub const Parser = struct {
     pub const Error = union(enum) {
@@ -16,6 +19,9 @@ pub const Parser = struct {
         UnexpectedToken: struct { expected: Token.Type },
         ExpectedExpression,
         InvalidAsignmentTarget,
+        TooManyLocals,
+        DuplicateLocalDeclaration,
+        ReadingInInitializer,
     };
 
     pub const Diagnostic = struct {
@@ -30,6 +36,10 @@ pub const Parser = struct {
     diagnostics: std.ArrayList(Diagnostic),
     panic_mode: bool,
     str_table: *StringTable,
+    locals: [MAX_LOCAL_COUNT]Local,
+    local_count: u8,
+    scope_depth: u8,
+
     _chunk: ?Chunk,
     _scanner: Scanner,
 
@@ -42,6 +52,9 @@ pub const Parser = struct {
             .diagnostics = try std.ArrayList(Diagnostic).initCapacity(alloc, 4),
             .panic_mode = false,
             .str_table = str_table,
+            .locals = undefined,
+            .local_count = 0,
+            .scope_depth = 0,
             ._chunk = undefined,
             ._scanner = undefined,
         };
@@ -78,9 +91,13 @@ pub const Parser = struct {
         }
     }
 
-    fn getStmt(self: *Parser) !void {
+    fn getStmt(self: *Parser) anyerror!void {
         if (try self.match(.PRINT)) {
             try self.getPrintStmt();
+        } else if (try self.match(.LEFT_BRACE)) {
+            self.beginScope();
+            try self.getBlock();
+            try self.endScope();
         } else {
             try self.getExprStmt();
         }
@@ -90,6 +107,16 @@ pub const Parser = struct {
         try self.getExpr();
         try self.consume(.SEMICOLON);
         try self.emitOp(.OP_PRINT);
+    }
+
+    fn getBlock(self: *Parser) !void {
+        while (self.current.token_type != .RIGHT_BRACE and
+            self.current.token_type != .EOF)
+        {
+            try self.getDecl();
+        }
+
+        try self.consume(.RIGHT_BRACE);
     }
 
     fn getVarDecl(self: *Parser) !void {
@@ -128,7 +155,7 @@ pub const Parser = struct {
         try self.consume(.RIGHT_PAREN);
     }
 
-    fn getBin(self: *Parser,  _: bool) !void {
+    fn getBin(self: *Parser, _: bool) !void {
         const op = self.previous.token_type;
         const rule = ParseRule.getRule(op);
         const next_precedence: Precedence = @enumFromInt(@intFromEnum(rule.prec) + 1);
@@ -200,12 +227,12 @@ pub const Parser = struct {
     }
 
     fn getVar(self: *Parser, can_assign: bool) !void {
-        try self.getNamedVariable(can_assign);
+        try self.getNamedVariable(self.previous, can_assign);
     }
 
     fn parsePrecendence(self: *Parser, prec: Precedence) !void {
         try self.advance();
-        const can_assign = prec.cmp(.Asgn) <= 0; 
+        const can_assign = prec.cmp(.Asgn) <= 0;
         const prefix_rule = ParseRule.getRule(self.previous.token_type).prefix;
 
         if (prefix_rule) |valid_prefix_rule| {
@@ -213,7 +240,6 @@ pub const Parser = struct {
         } else {
             return try self.reportError(.ExpectedExpression);
         }
-
 
         while (prec.cmp(ParseRule.getRule(self.current.token_type).prec) <= 0) {
             try self.advance();
@@ -238,26 +264,80 @@ pub const Parser = struct {
         return try self.makeConstant(.{ .Obj = &ident_string.str.obj });
     }
 
+    fn addLocal(self: *Parser, name: Token) !void {
+        if (self.local_count == MAX_LOCAL_COUNT) {
+            try self.reportErrorAtCurrent(.TooManyLocals);
+            return;
+        }
+
+        self.locals[self.local_count] = .{
+            .name = name,
+            .depth = null,
+        };
+        self.local_count += 1;
+    }
+
     fn parseVariable(self: *Parser) !u8 {
         try self.consume(.IDENTIFIER);
+
+        try self.declareVariable();
+        if (self.scope_depth > 0) {
+            return 0;
+        }
+
         return try self.makeIdentifier(self.previous);
     }
 
+    fn declareVariable(self: *Parser) !void {
+        if (self.scope_depth == 0) {
+            return;
+        }
+
+        const name = self.previous;
+        for (self.locals[0..self.local_count]) |*local| {
+            if (self.scope_depth != -1 and local.depth.? < self.scope_depth) {
+                break;
+            }
+
+            if (identifiersEqual(name, local.name)) {
+                try self.reportErrorAtCurrent(.DuplicateLocalDeclaration);
+            }
+        }
+
+        try self.addLocal(name);
+    }
+
     fn defineVariable(self: *Parser, global: u8) !void {
+        if (self.scope_depth > 0) {
+            self.markInitialized();
+            return;
+        }
+
         try self.emitOp(.OP_DEFINE_GLOBAL);
         try self.emitByte(global);
     }
 
-    fn getNamedVariable(self: *Parser, can_assign: bool) !void {
-        const arg = try self.makeIdentifier(self.previous);
+    fn getNamedVariable(self: *Parser, name: Token, can_assign: bool) !void {
+        const local = try self.resolveLocal(name);
+
+        const get_op, const set_op, const addr =
+            if (local) |local_idx| .{
+                OpCode.OP_GET_LOCAL,
+                OpCode.OP_SET_LOCAL,
+                local_idx,
+            } else .{
+                OpCode.OP_GET_GLOBAL,
+                OpCode.OP_SET_GLOBAL,
+                try self.makeIdentifier(name),
+            };
 
         if (can_assign and try self.match(.EQUAL)) {
             try self.getExpr();
-            try self.emitOp(.OP_SET_GLOBAL);
-            try self.emitByte(arg);
+            try self.emitOp(set_op);
+            try self.emitByte(addr);
         } else {
-            try self.emitOp(.OP_GET_GLOBAL);
-            try self.emitByte(arg);
+            try self.emitOp(get_op);
+            try self.emitByte(addr);
         }
     }
 
@@ -289,6 +369,30 @@ pub const Parser = struct {
         }
 
         return @intCast(addr);
+    }
+
+    fn resolveLocal(self: *Parser, name: Token) !?u8 {
+        if (self.local_count == 0) {
+            return null;
+        }
+
+        var idx = std.math.sub(u8, self.local_count, 1) catch
+            {
+                return null;
+            };
+        while (idx >= 0) : (idx -= 1) {
+            if (identifiersEqual(name, self.locals[idx].name)) {
+                if (self.locals[idx].depth == null) {
+                    try self.reportErrorAtCurrent(.ReadingInInitializer);
+                }
+                return idx;
+            }
+        }
+        return null;
+    }
+
+    fn markInitialized(self: *Parser) void {
+        self.locals[self.local_count - 1].depth = self.scope_depth;
     }
 
     fn endCompiler(self: *Parser) !void {
@@ -324,6 +428,25 @@ pub const Parser = struct {
 
         try self.advance();
         return true;
+    }
+
+    fn identifiersEqual(a: Token, b: Token) bool {
+        return std.mem.eql(u8, a.lexeme, b.lexeme);
+    }
+
+    fn beginScope(self: *Parser) void {
+        self.scope_depth += 1;
+    }
+
+    fn endScope(self: *Parser) !void {
+        self.scope_depth -= 1;
+
+        while (self.local_count > 0 and
+            self.locals[self.local_count - 1].depth.? > self.scope_depth)
+        {
+            try self.emitOp(.OP_POP);
+            self.local_count -= 1;
+        }
     }
 
     fn reportErrorAtCurrent(self: *Parser, err: Error) !void {

@@ -64,7 +64,7 @@ fn interpret(line: []u8, alloc: std.mem.Allocator, vm: *Vm, parser: *Parser) !vo
     const scanner = Scanner.init(line);
 
     var chunk = try parser.compile(alloc, scanner);
-    if (!parser.panic_mode) {
+    if (parser.diagnostics.items.len == 0) {
         vm.interpret(chunk.?) catch |err|
             std.debug.print("Runtime error: {}\n", .{err});
     } else {
