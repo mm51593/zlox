@@ -63,10 +63,16 @@ fn runFile(filename: []const u8, alloc: std.mem.Allocator, io: std.Io, vm: *Vm, 
 fn interpret(line: []u8, alloc: std.mem.Allocator, vm: *Vm, parser: *Parser) !void {
     const scanner = Scanner.init(line);
 
-    var chunk = try parser.compile(alloc, scanner);
-    if (parser.diagnostics.items.len == 0) {
-        vm.interpret(chunk.?) catch |err|
-            std.debug.print("Runtime error: {}\n", .{err});
+    const chunk = try parser.compile(alloc, scanner);
+    defer if (chunk) |temp| {
+        temp.deinit();
+    };
+
+    if (chunk) |valid_chunk| {
+        vm.interpret(valid_chunk) catch |err| {
+            //return err;
+            std.debug.print("Runtime error: {} near token {}\n", .{err, vm.chunk.tokens.items[vm.ip - vm.chunk.code.items.ptr]});
+        };
     } else {
         for (parser.diagnostics.items) |diag| {
             std.debug.print("Line {}: syntax error: {s} near token {s}\n", .{
@@ -76,8 +82,5 @@ fn interpret(line: []u8, alloc: std.mem.Allocator, vm: *Vm, parser: *Parser) !vo
             });
         }
         parser.diagnostics.clearRetainingCapacity();
-    }
-    if (chunk) |*temp| {
-        temp.deinit();
     }
 }

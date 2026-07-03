@@ -22,6 +22,7 @@ pub const OpCode = enum(BYTE) {
     OP_GET_LOCAL,
     OP_SET_LOCAL,
     OP_DEFINE_GLOBAL,
+    OP_JUMP_IF_FALSE,
 
     // unary
     OP_NEGATE,

@@ -15,11 +15,11 @@ pub fn disasChunk(chunk: cnk.Chunk, name: []const u8) !void {
 pub fn disasInst(chunk: cnk.Chunk, idx: usize) !usize {
     var offset: usize = 0;
     const inst = chunk.code.items[idx];
-    const line = chunk.lines.items[idx];
+    const line = chunk.tokens.items[idx];
 
     std.debug.print("{:0>4} ", .{idx});
 
-    if (idx != 0 and line == chunk.lines.items[idx - 1]) {
+    if (idx != 0 and line == chunk.tokens.items[idx - 1]) {
         std.debug.print("   | ", .{});
     } else {
         std.debug.print("{: >4} ", .{line});

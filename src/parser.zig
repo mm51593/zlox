@@ -22,6 +22,7 @@ pub const Parser = struct {
         TooManyLocals,
         DuplicateLocalDeclaration,
         ReadingInInitializer,
+        JumpTooBig,
     };
 
     pub const Diagnostic = struct {
@@ -40,7 +41,7 @@ pub const Parser = struct {
     local_count: u8,
     scope_depth: u8,
 
-    _chunk: ?Chunk,
+    _chunk: *Chunk,
     _scanner: Scanner,
 
     pub fn init(alloc: std.mem.Allocator, obj_list: *object.ObjectList, str_table: *StringTable) !Parser {
@@ -64,7 +65,7 @@ pub const Parser = struct {
         self.diagnostics.deinit(self.alloc);
     }
 
-    pub fn compile(self: *Parser, alloc: std.mem.Allocator, scanner: Scanner) !?Chunk {
+    pub fn compile(self: *Parser, alloc: std.mem.Allocator, scanner: Scanner) !?*Chunk {
         self._chunk = try Chunk.init(alloc);
         self._scanner = scanner;
 
@@ -76,7 +77,7 @@ pub const Parser = struct {
 
         try self.endCompiler();
 
-        return self._chunk;
+        return if (self.diagnostics.items.len == 0) self._chunk else null;  
     }
 
     fn getDecl(self: *Parser) !void {
@@ -94,7 +95,10 @@ pub const Parser = struct {
     fn getStmt(self: *Parser) anyerror!void {
         if (try self.match(.PRINT)) {
             try self.getPrintStmt();
-        } else if (try self.match(.LEFT_BRACE)) {
+        } else if (try self.match(.IF)) {
+            try self.getIfStmt();
+        }
+        else if (try self.match(.LEFT_BRACE)) {
             self.beginScope();
             try self.getBlock();
             try self.endScope();
@@ -137,6 +141,17 @@ pub const Parser = struct {
         try self.getExpr();
         try self.consume(.SEMICOLON);
         try self.emitOp(.OP_POP);
+    }
+
+    fn getIfStmt(self: *Parser) !void {
+        try self.consume(.LEFT_PAREN);
+        try self.getExpr();
+        try self.consume(.RIGHT_PAREN);
+
+        const then_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.getStmt();
+
+        try self.patchJump(then_jump);
     }
 
     fn getExpr(self: *Parser) !void {
@@ -213,11 +228,11 @@ pub const Parser = struct {
         const str = if (exists) |s|
             s
         else blk: {
-            const chars_copy = try self.alloc.alloc(u8, self.previous.lexeme.len - 2);
-            @memcpy(chars_copy, chars);
-
-            const str = (try object.ObjString.init(self.alloc, chars_copy, self.str_table)).str;
-            self.obj_list.insert(&str.obj);
+            const str_init_res = (try object.ObjString.init(self.alloc, chars, self.str_table));
+            const str = str_init_res.str;
+            if (str_init_res.status == .New) {
+                self.obj_list.insert(&str.obj);
+            }
 
             break :blk str;
         };
@@ -256,12 +271,17 @@ pub const Parser = struct {
     }
 
     fn makeIdentifier(self: *Parser, name: Token) !u8 {
-        const ident_string = (try object.ObjString.init(
+        const ident_init_res = (try object.ObjString.init(
             self.alloc,
             name.lexeme,
             self.str_table,
         ));
-        return try self.makeConstant(.{ .Obj = &ident_string.str.obj });
+
+        const str = ident_init_res.str;
+        if (ident_init_res.status == .New) {
+            self.obj_list.insert(&str.obj);
+        }
+        return try self.makeConstant(.{ .Obj = &str.obj });
     }
 
     fn addLocal(self: *Parser, name: Token) !void {
@@ -342,15 +362,11 @@ pub const Parser = struct {
     }
 
     fn emitOp(self: *Parser, op: OpCode) !void {
-        if (self._chunk) |*chunk| {
-            try chunk.writeOp(op, self.previous.line);
-        }
+        try self._chunk.writeOp(op, self.previous);
     }
 
     fn emitByte(self: *Parser, byte: u8) !void {
-        if (self._chunk) |*chunk| {
-            try chunk.write(u8, byte, self.previous.line);
-        }
+        try self._chunk.write(u8, byte, self.previous);
     }
 
     fn emitConstant(self: *Parser, value: Value) !void {
@@ -358,11 +374,28 @@ pub const Parser = struct {
         try self.emitByte(try makeConstant(self, value));
     }
 
+    fn emitJump(self: *Parser, instr: OpCode) !usize {
+        try self.emitOp(instr);
+        try self.emitByte(0xff);
+        try self.emitByte(0xff);
+        return self._chunk.code.items.len - 2;
+    }
+
+    fn patchJump(self: *Parser, offset: usize) !void {
+        const jump = self._chunk.code.items.len - offset - 2;
+
+        if (jump > std.math.maxInt(u16)) {
+            try self.reportErrorAtCurrent(.JumpTooBig);
+        }
+
+        const jump_downcast: u16 = @intCast(jump);
+
+        self._chunk.code.items[offset] = @intCast((jump_downcast >> 8) & 0xff);
+        self._chunk.code.items[offset + 1] = @intCast(jump_downcast & 0xff);
+    }
+
     fn makeConstant(self: *Parser, value: Value) !u8 {
-        const addr = if (self._chunk) |*chunk|
-            try chunk.addConstant(value)
-        else
-            0;
+        const addr = try self._chunk.addConstant(value);
 
         if (addr > std.math.maxInt(u8)) {
             try self.reportError(.TooManyConstants);

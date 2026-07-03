@@ -86,18 +86,16 @@ pub const ObjString = struct {
         return if (a == b) .eq else .lt;
     }
 
-    pub fn concatenate(alloc: Allocator, a: *ObjString, b: *ObjString, str_table: *StringTable) !*ObjString {
+    pub fn concatenate(alloc: Allocator, a: *ObjString, b: *ObjString, str_table: *StringTable) !InitResult {
         const len = a.chars.len + b.chars.len;
         const chars = try alloc.alloc(u8, len);
         @memcpy(chars, a.chars.ptr);
         @memcpy(chars[a.chars.len..], b.chars.ptr);
 
         const res = try ObjString.init(alloc, chars, str_table);
-        if (res.status == .Existing) {
-            alloc.free(chars);
-        }
+        alloc.free(chars);
 
-        return res.str;
+        return res;
     }
 };
 
@@ -118,15 +116,6 @@ pub const ObjectList = struct {
                 },
             }
         }
-    }
-
-    pub fn create(self: *ObjectList, alloc: Allocator, tag: ObjType) !*Obj {
-        const obj = switch (tag) {
-            .OBJ_STRING => (try alloc.create(ObjString)).obj,
-        };
-
-        self.insert(obj);
-        return obj;
     }
 
     pub fn insert(self: *ObjectList, o: *Obj) void {

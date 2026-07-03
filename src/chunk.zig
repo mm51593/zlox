@@ -1,6 +1,7 @@
 const std = @import("std");
 const op_code = @import("op_code.zig");
 const value = @import("value.zig");
+const Token = @import("token.zig").Token;
 
 const INITIAL_CAPACITY = 8;
 const BYTE = op_code.BYTE;
@@ -8,27 +9,31 @@ const BYTE = op_code.BYTE;
 pub const Chunk = struct {
     alloc: std.mem.Allocator,
     code: std.ArrayList(BYTE),
-    lines: std.ArrayList(usize),
+    tokens: std.ArrayList(Token),
     constants: value.ValueArray,
 
-    pub fn init(alloc: std.mem.Allocator) !Chunk {
-        const code = try std.ArrayList(BYTE).initCapacity(alloc, INITIAL_CAPACITY);
-        const lines = try std.ArrayList(usize).initCapacity(alloc, INITIAL_CAPACITY);
-        const constants = try value.ValueArray.init(alloc);
-        return Chunk{ .alloc = alloc, .code = code, .lines = lines, .constants = constants };
+    pub fn init(alloc: std.mem.Allocator) !*Chunk {
+        const p = try alloc.create(Chunk);
+        p.* = .{
+            .alloc = alloc,
+            .code = try std.ArrayList(BYTE).initCapacity(alloc, INITIAL_CAPACITY),
+            .tokens = try std.ArrayList(Token).initCapacity(alloc, INITIAL_CAPACITY),
+            .constants = try value.ValueArray.init(alloc),
+        };
+        return p;
     }
 
-    pub fn writeOp(self: *Chunk, op: op_code.OpCode, line: usize) !void {
-        try self.write(u8, @intFromEnum(op), line);
+    pub fn writeOp(self: *Chunk, op: op_code.OpCode, token: Token) !void {
+        try self.write(u8, @intFromEnum(op), token);
     }
 
-    pub fn write(self: *Chunk, comptime T: type, data: T, line: usize) !void {
+    pub fn write(self: *Chunk, comptime T: type, data: T, token: Token) !void {
         var buf: [@sizeOf(T)]BYTE = undefined;
         std.mem.writeInt(T, &buf, data, std.builtin.Endian.little);
 
         try self.code.appendSlice(self.alloc, &buf);
 
-        try self.lines.appendNTimes(self.alloc, line, @sizeOf(T) / @sizeOf(BYTE));
+        try self.tokens.appendNTimes(self.alloc, token, @sizeOf(T) / @sizeOf(BYTE));
     }
 
     pub fn addConstant(self: *Chunk, val: value.Value) !usize {
@@ -38,7 +43,8 @@ pub const Chunk = struct {
 
     pub fn deinit(self: *Chunk) void {
         self.constants.deinit();
-        self.lines.deinit(self.alloc);
+        self.tokens.deinit(self.alloc);
         self.code.deinit(self.alloc);
+        self.alloc.destroy(self);
     }
 };

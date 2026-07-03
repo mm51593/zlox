@@ -24,7 +24,7 @@ pub const RuntimeError = error{
 const STACK_MAX = 256;
 
 pub const Vm = struct {
-    chunk: Chunk,
+    chunk: *const Chunk,
     ip: [*]u8,
     stack: [STACK_MAX]Value,
     sp: usize,
@@ -52,7 +52,7 @@ pub const Vm = struct {
         self.globals.deinit();
     }
 
-    pub fn interpret(vm: *Vm, chunk: Chunk) !void {
+    pub fn interpret(vm: *Vm, chunk: *const Chunk) !void {
         vm.chunk = chunk;
         vm.ip = vm.chunk.code.items.ptr;
 
@@ -108,6 +108,12 @@ pub const Vm = struct {
                     const name_str = try name_obj.as(ObjString);
                     _ = try self.globals.put(name_str, self.pop()); // this pop might be dangerous
                 },
+                .OP_JUMP_IF_FALSE => {
+                    const offset = self.readShort();
+                    if (try isFalsey(self.peek())) {
+                        self.ip += offset;
+                    }
+                },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
                     const negated = -val;
@@ -130,8 +136,10 @@ pub const Vm = struct {
                         const a_str = try (try a.as(.Obj)).as(ObjString);
                         const b_str = try (try b.as(.Obj)).as(ObjString);
                         const concat = try ObjString.concatenate(self.alloc, a_str, b_str, self.str_table);
-                        self.objects.insert(&concat.obj);
-                        self.push(try pack(&concat.obj));
+                        if (concat.status == .New) {
+                            self.objects.insert(&concat.str.obj);
+                        }
+                        self.push(try pack(&concat.str.obj));
                     } else {
                         return RuntimeError.InvalidOperand;
                     }
@@ -165,9 +173,15 @@ pub const Vm = struct {
     }
 
     fn readByte(self: *Vm) BYTE {
-        const byte: u8 = self.ip[0];
+        const byte = self.ip[0];
         self.ip += 1;
         return byte;
+    }
+
+    fn readShort(self: *Vm) u16 {
+        const r: u16 = (@as(u16, self.ip[0]) << 8) | self.ip[1];
+        self.ip += 2;
+        return r;
     }
 
     fn readConstant(self: *Vm) Value {
@@ -237,7 +251,8 @@ pub const Vm = struct {
             return !bool_val;
         }
 
-        try unpack(val.as(.Nil));
+        unpack(val.as(.Nil)) catch { return false; };
+
         return true;
     }
 

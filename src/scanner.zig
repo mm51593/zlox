@@ -70,12 +70,11 @@ pub const Scanner = struct {
         return self.current >= self.source.len;
     }
 
-    // zig fmt: off
     fn makeToken(self: Scanner, token_type: Token.Type) Token {
         return Token{
             .token_type = token_type,
             .lexeme = self.source[self.start..self.current],
-            .line = self.line
+            .line = self.line,
         };
     }
 
@@ -110,8 +109,9 @@ pub const Scanner = struct {
             _ = self.advance();
         }
 
-        if (!self.isAtEnd() and self.peek() == '.' and 
-            std.ascii.isDigit(self.peekNext())) {
+        if (!self.isAtEnd() and self.peek() == '.' and
+            std.ascii.isDigit(self.peekNext()))
+        {
             // consume the '.'
             _ = self.advance();
 
