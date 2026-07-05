@@ -149,9 +149,19 @@ pub const Parser = struct {
         try self.consume(.RIGHT_PAREN);
 
         const then_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.emitOp(.OP_POP);
+
         try self.getStmt();
+        const else_jump = try self.emitJump(.OP_JUMP);
 
         try self.patchJump(then_jump);
+        try self.emitOp(.OP_POP);
+
+        if (try self.match(.ELSE)) {
+            try self.getStmt();
+        }
+
+        try self.patchJump(else_jump);
     }
 
     fn getExpr(self: *Parser) !void {

@@ -108,6 +108,10 @@ pub const Vm = struct {
                     const name_str = try name_obj.as(ObjString);
                     _ = try self.globals.put(name_str, self.pop()); // this pop might be dangerous
                 },
+                .OP_JUMP => {
+                    const offset = self.readShort();
+                    self.ip += offset;
+                },
                 .OP_JUMP_IF_FALSE => {
                     const offset = self.readShort();
                     if (try isFalsey(self.peek())) {
@@ -251,7 +255,9 @@ pub const Vm = struct {
             return !bool_val;
         }
 
-        unpack(val.as(.Nil)) catch { return false; };
+        unpack(val.as(.Nil)) catch {
+            return false;
+        };
 
         return true;
     }
