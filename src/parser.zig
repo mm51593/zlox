@@ -347,6 +347,26 @@ pub const Parser = struct {
         try self.emitByte(global);
     }
 
+    fn getAnd(self: *Parser, _: bool) !void {
+        const end_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+
+        try self.emitOp(.OP_POP);
+        try self.parsePrecendence(.And);
+
+        try self.patchJump(end_jump);
+    }
+
+    fn getOr(self: *Parser, _: bool) !void {
+        const else_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+        const end_jump = try self.emitJump(.OP_JUMP);
+
+        try self.patchJump(else_jump);
+        try self.emitOp(.OP_POP);
+
+        try self.parsePrecendence(.Or);
+        try self.patchJump(end_jump);
+    }
+
     fn getNamedVariable(self: *Parser, name: Token, can_assign: bool) !void {
         const local = try self.resolveLocal(name);
 
@@ -583,7 +603,7 @@ const ParseRule = struct {
                 .IDENTIFIER    => rule(p.getVar,  null,     .None),
                 .STRING        => rule(p.getStr,  null,     .None),
                 .NUMBER        => rule(p.getNum,  null,     .None),
-                .AND           => rule(null,      null,     .None),
+                .AND           => rule(null,      p.getAnd, .And),
                 .CLASS         => rule(null,      null,     .None),
                 .ELSE          => rule(null,      null,     .None),
                 .FALSE         => rule(p.getLit,  null,     .None),
@@ -591,7 +611,7 @@ const ParseRule = struct {
                 .FOR           => rule(null,      null,     .None),
                 .IF            => rule(null,      null,     .None),
                 .NIL           => rule(p.getLit,  null,     .None),
-                .OR            => rule(null,      null,     .None),
+                .OR            => rule(null,      p.getOr,  .None),
                 .PRINT         => rule(null,      null,     .None),
                 .RETURN        => rule(null,      null,     .None),
                 .SUPER         => rule(null,      null,     .None),
