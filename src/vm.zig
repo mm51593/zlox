@@ -214,8 +214,8 @@ pub const Vm = struct {
     }
 
     fn interpretNumBinary(op1: Value, op2: Value, op: OpCode) RuntimeError!Value {
-        const b = try unpack(op1.as(.Number));
-        const a = try unpack(op2.as(.Number));
+        const a = try unpack(op1.as(.Number));
+        const b = try unpack(op2.as(.Number));
         return switch (op) {
             .OP_ADD => try pack(a + b),
             .OP_SUBTRACT => try pack(a - b),
