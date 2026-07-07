@@ -99,6 +99,8 @@ pub const Parser = struct {
             try self.getIfStmt();
         } else if (try self.match(.WHILE)) {
             try self.getWhileStmt();
+        } else if (try self.match(.FOR)) {
+            try self.getForStmt();
         } else if (try self.match(.LEFT_BRACE)) {
             self.beginScope();
             try self.getBlock();
@@ -121,6 +123,55 @@ pub const Parser = struct {
 
         try self.patchJump(exit_jump);
         try self.emitOp(.OP_POP);
+    }
+
+    fn getForStmt(self: *Parser) !void {
+        self.beginScope();
+
+        // initializer
+        try self.consume(.LEFT_PAREN);
+        if (try self.match(.SEMICOLON)) {
+            // no initializer
+        } else if (try self.match(.VAR)) {
+            try self.getVarDecl();
+        } else {
+            try self.getExprStmt();
+        }
+
+        var loop_start = self._chunk.code.items.len;
+
+        // condition
+        var maybe_exit_jump: ?usize = null;
+        if (!try self.match(.SEMICOLON)) {
+            try self.getExpr();
+            try self.consume(.SEMICOLON);
+
+           maybe_exit_jump = try self.emitJump(.OP_JUMP_IF_FALSE); 
+           try self.emitOp(.OP_POP);
+        }
+
+        // increment
+        if (!try self.match(.RIGHT_PAREN)) {
+            const body_jump = try self.emitJump(.OP_JUMP);
+            const increment_start = self._chunk.code.items.len;
+            try self.getExpr();
+            try self.emitOp(.OP_POP);
+
+            try self.consume(.RIGHT_PAREN);
+            
+            try self.emitLoop(loop_start);
+            loop_start = increment_start;
+            try self.patchJump(body_jump);
+        }
+
+        try self.getStmt();
+        try self.emitLoop(loop_start);
+        if (maybe_exit_jump) |exit_jump| {
+            try self.patchJump(exit_jump);
+            try self.emitOp(.OP_POP);
+        }
+
+        try self.endScope();
     }
 
     fn getPrintStmt(self: *Parser) !void {
