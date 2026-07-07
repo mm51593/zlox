@@ -77,7 +77,7 @@ pub const Parser = struct {
 
         try self.endCompiler();
 
-        return if (self.diagnostics.items.len == 0) self._chunk else null;  
+        return if (self.diagnostics.items.len == 0) self._chunk else null;
     }
 
     fn getDecl(self: *Parser) !void {
@@ -97,14 +97,30 @@ pub const Parser = struct {
             try self.getPrintStmt();
         } else if (try self.match(.IF)) {
             try self.getIfStmt();
-        }
-        else if (try self.match(.LEFT_BRACE)) {
+        } else if (try self.match(.WHILE)) {
+            try self.getWhileStmt();
+        } else if (try self.match(.LEFT_BRACE)) {
             self.beginScope();
             try self.getBlock();
             try self.endScope();
         } else {
             try self.getExprStmt();
         }
+    }
+
+    fn getWhileStmt(self: *Parser) !void {
+        const loop_start = self._chunk.code.items.len;
+        try self.consume(.LEFT_PAREN);
+        try self.getExpr();
+        try self.consume(.RIGHT_PAREN);
+
+        const exit_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.emitOp(.OP_POP);
+        try self.getStmt();
+        try self.emitLoop(loop_start);
+
+        try self.patchJump(exit_jump);
+        try self.emitOp(.OP_POP);
     }
 
     fn getPrintStmt(self: *Parser) !void {
@@ -397,6 +413,20 @@ pub const Parser = struct {
 
     fn emitByte(self: *Parser, byte: u8) !void {
         try self._chunk.write(u8, byte, self.previous);
+    }
+
+    fn emitLoop(self: *Parser, loop_start: usize) !void {
+        try self.emitOp(.OP_LOOP);
+
+        const offset = self._chunk.code.items.len - loop_start + 2;
+        if (offset > std.math.maxInt(u16)) {
+            try self.reportErrorAtCurrent(.JumpTooBig);
+        }
+        const offset_downcast: u16 = @intCast(offset);
+
+
+        try self.emitByte(@intCast((offset_downcast >> 8) & 0xff));
+        try self.emitByte(@intCast(offset_downcast & 0xff));
     }
 
     fn emitConstant(self: *Parser, value: Value) !void {

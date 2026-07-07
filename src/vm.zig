@@ -118,6 +118,10 @@ pub const Vm = struct {
                         self.ip += offset;
                     }
                 },
+                .OP_LOOP => {
+                    const offset = self.readShort();
+                    self.ip -= offset;
+                },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
                     const negated = -val;
