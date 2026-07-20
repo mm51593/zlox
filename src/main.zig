@@ -24,7 +24,7 @@ pub fn main(init: std.process.Init) !void {
     var vm = Vm.init(alloc, &obj_list, &str_table);
 
     if (args.len == 1) {
-        try repl(alloc, io, &vm, &parser);
+        try repl(io, &vm, &parser);
     } else if (args.len == 2) {
         try runFile(args[1], alloc, io, &vm, &parser);
     } else {
@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
     try obj_list.deinit(alloc);
 }
 
-fn repl(alloc: std.mem.Allocator, io: std.Io, vm: *Vm, parser: *Parser) !void {
+fn repl(io: std.Io, vm: *Vm, parser: *Parser) !void {
     var buffer: [LINE_LENGTH]u8 = undefined;
     var reader = std.Io.File.stdin().reader(io, &buffer);
     const stdin = &reader.interface;
@@ -46,7 +46,7 @@ fn repl(alloc: std.mem.Allocator, io: std.Io, vm: *Vm, parser: *Parser) !void {
         std.debug.print("> ", .{});
         const input = try stdin.takeDelimiter('\n');
         if (input) |line| {
-            try interpret(line, alloc, vm, parser);
+            try interpret(line, vm, parser);
         } else {
             break;
         }
@@ -57,21 +57,18 @@ fn runFile(filename: []const u8, alloc: std.mem.Allocator, io: std.Io, vm: *Vm, 
     const buffer = try std.Io.Dir.cwd().readFileAlloc(io, filename, alloc, .unlimited);
     defer alloc.free(buffer);
 
-    try interpret(buffer, alloc, vm, parser);
+    try interpret(buffer, vm, parser);
 }
 
-fn interpret(line: []u8, alloc: std.mem.Allocator, vm: *Vm, parser: *Parser) !void {
+fn interpret(line: []u8, vm: *Vm, parser: *Parser) !void {
     const scanner = Scanner.init(line);
 
-    const chunk = try parser.compile(alloc, scanner);
-    defer if (chunk) |temp| {
-        temp.deinit();
-    };
+    const func = try parser.compile(scanner);
 
-    if (chunk) |valid_chunk| {
+    if (func) |valid_chunk| {
         vm.interpret(valid_chunk) catch |err| {
             //return err;
-            std.debug.print("Runtime error: {} near token {}\n", .{err, vm.chunk.tokens.items[vm.ip - vm.chunk.code.items.ptr]});
+            std.debug.print("Runtime error: {} near token {}\n", .{err, vm.getCurrentFrame().getCurrentToken()});
         };
     } else {
         for (parser.diagnostics.items) |diag| {

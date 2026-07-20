@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const Allocator = @import("std").mem.Allocator;
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("op_code.zig").OpCode;
 const Scanner = @import("scanner.zig").Scanner;
@@ -9,6 +10,7 @@ const object = @import("object.zig");
 const StringTable = @import("string_table.zig").StringTable;
 const Local = @import("local.zig").Local;
 
+const ENTRY_POINT = "_start";
 const MAX_LOCAL_COUNT = std.math.maxInt(u8);
 
 pub const Parser = struct {
@@ -40,12 +42,13 @@ pub const Parser = struct {
     locals: [MAX_LOCAL_COUNT]Local,
     local_count: u8,
     scope_depth: u8,
+    _function: *object.ObjFunction,
+    function_type: object.ObjFunction.Type,
 
-    _chunk: *Chunk,
     _scanner: Scanner,
 
-    pub fn init(alloc: std.mem.Allocator, obj_list: *object.ObjectList, str_table: *StringTable) !Parser {
-        return Parser{
+    pub fn init(alloc: Allocator, obj_list: *object.ObjectList, str_table: *StringTable) !Parser {
+        const p = Parser{
             .alloc = alloc,
             .obj_list = obj_list,
             .current = undefined,
@@ -56,17 +59,20 @@ pub const Parser = struct {
             .locals = undefined,
             .local_count = 0,
             .scope_depth = 0,
-            ._chunk = undefined,
             ._scanner = undefined,
+            ._function = undefined,
+            .function_type = .Script,
         };
+        return p;
     }
 
     pub fn deinit(self: *Parser) void {
         self.diagnostics.deinit(self.alloc);
     }
 
-    pub fn compile(self: *Parser, alloc: std.mem.Allocator, scanner: Scanner) !?*Chunk {
-        self._chunk = try Chunk.init(alloc);
+    pub fn compile(self: *Parser, scanner: Scanner) !?*object.ObjFunction {
+        self._function = try self.constructEntryFn();
+        self.obj_list.insert(&self._function.obj);
         self._scanner = scanner;
 
         try self.advance();
@@ -77,7 +83,7 @@ pub const Parser = struct {
 
         try self.endCompiler();
 
-        return if (self.diagnostics.items.len == 0) self._chunk else null;
+        return if (self.diagnostics.items.len == 0) self._function else null;
     }
 
     fn getDecl(self: *Parser) !void {
@@ -111,7 +117,7 @@ pub const Parser = struct {
     }
 
     fn getWhileStmt(self: *Parser) !void {
-        const loop_start = self._chunk.code.items.len;
+        const loop_start = self.getCurrentChunk().code.items.len;
         try self.consume(.LEFT_PAREN);
         try self.getExpr();
         try self.consume(.RIGHT_PAREN);
@@ -138,7 +144,7 @@ pub const Parser = struct {
             try self.getExprStmt();
         }
 
-        var loop_start = self._chunk.code.items.len;
+        var loop_start = self.getCurrentChunk().code.items.len;
 
         // condition
         var maybe_exit_jump: ?usize = null;
@@ -146,19 +152,19 @@ pub const Parser = struct {
             try self.getExpr();
             try self.consume(.SEMICOLON);
 
-           maybe_exit_jump = try self.emitJump(.OP_JUMP_IF_FALSE); 
-           try self.emitOp(.OP_POP);
+            maybe_exit_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+            try self.emitOp(.OP_POP);
         }
 
         // increment
         if (!try self.match(.RIGHT_PAREN)) {
             const body_jump = try self.emitJump(.OP_JUMP);
-            const increment_start = self._chunk.code.items.len;
+            const increment_start = self.getCurrentChunk().code.items.len;
             try self.getExpr();
             try self.emitOp(.OP_POP);
 
             try self.consume(.RIGHT_PAREN);
-            
+
             try self.emitLoop(loop_start);
             loop_start = increment_start;
             try self.patchJump(body_jump);
@@ -459,22 +465,21 @@ pub const Parser = struct {
     }
 
     fn emitOp(self: *Parser, op: OpCode) !void {
-        try self._chunk.writeOp(op, self.previous);
+        try self.getCurrentChunk().writeOp(op, self.previous);
     }
 
     fn emitByte(self: *Parser, byte: u8) !void {
-        try self._chunk.write(u8, byte, self.previous);
+        try self.getCurrentChunk().write(u8, byte, self.previous);
     }
 
     fn emitLoop(self: *Parser, loop_start: usize) !void {
         try self.emitOp(.OP_LOOP);
 
-        const offset = self._chunk.code.items.len - loop_start + 2;
+        const offset = self.getCurrentChunk().code.items.len - loop_start + 2;
         if (offset > std.math.maxInt(u16)) {
             try self.reportErrorAtCurrent(.JumpTooBig);
         }
         const offset_downcast: u16 = @intCast(offset);
-
 
         try self.emitByte(@intCast((offset_downcast >> 8) & 0xff));
         try self.emitByte(@intCast(offset_downcast & 0xff));
@@ -489,11 +494,11 @@ pub const Parser = struct {
         try self.emitOp(instr);
         try self.emitByte(0xff);
         try self.emitByte(0xff);
-        return self._chunk.code.items.len - 2;
+        return self.getCurrentChunk().code.items.len - 2;
     }
 
     fn patchJump(self: *Parser, offset: usize) !void {
-        const jump = self._chunk.code.items.len - offset - 2;
+        const jump = self.getCurrentChunk().code.items.len - offset - 2;
 
         if (jump > std.math.maxInt(u16)) {
             try self.reportErrorAtCurrent(.JumpTooBig);
@@ -501,12 +506,12 @@ pub const Parser = struct {
 
         const jump_downcast: u16 = @intCast(jump);
 
-        self._chunk.code.items[offset] = @intCast((jump_downcast >> 8) & 0xff);
-        self._chunk.code.items[offset + 1] = @intCast(jump_downcast & 0xff);
+        self.getCurrentChunk().code.items[offset] = @intCast((jump_downcast >> 8) & 0xff);
+        self.getCurrentChunk().code.items[offset + 1] = @intCast(jump_downcast & 0xff);
     }
 
     fn makeConstant(self: *Parser, value: Value) !u8 {
-        const addr = try self._chunk.addConstant(value);
+        const addr = try self.getCurrentChunk().addConstant(value);
 
         if (addr > std.math.maxInt(u8)) {
             try self.reportError(.TooManyConstants);
@@ -593,6 +598,10 @@ pub const Parser = struct {
         }
     }
 
+    fn getCurrentChunk(self: Parser) *Chunk {
+        return self._function.chunk;
+    }
+
     fn reportErrorAtCurrent(self: *Parser, err: Error) !void {
         try self.reportErrorAt(self.current, err);
     }
@@ -622,6 +631,15 @@ pub const Parser = struct {
 
             try self.advance();
         }
+    }
+
+    fn constructEntryFn(self: Parser) !*object.ObjFunction {
+        const entry_res = try object.ObjString.init(self.alloc, ENTRY_POINT, self.str_table);
+        if (entry_res.status == .New) {
+            self.obj_list.insert(&entry_res.str.obj);
+        }
+
+        return try object.ObjFunction.init(self.alloc, entry_res.str);
     }
 };
 

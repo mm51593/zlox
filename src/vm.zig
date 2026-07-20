@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = @import("std").mem.Allocator;
 
+const Token = @import("token.zig").Token;
 const BYTE = @import("op_code.zig").BYTE;
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("op_code.zig").OpCode;
@@ -11,6 +12,7 @@ const Value = @import("value.zig").Value;
 const ValueTag = @import("value.zig").ValueTag;
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
+const ObjFunction = @import("object.zig").ObjFunction;
 const ObjectList = @import("object.zig").ObjectList;
 const StringTable = @import("string_table.zig").StringTable;
 const Table = @import("table.zig").Table;
@@ -21,11 +23,12 @@ pub const RuntimeError = error{
     UndefinedVariable,
 };
 
-const STACK_MAX = 256;
+const FRAMES_MAX = 64;
+const STACK_MAX = FRAMES_MAX * std.math.maxInt(u8);
 
 pub const Vm = struct {
-    chunk: *const Chunk,
-    ip: [*]u8,
+    frames: [FRAMES_MAX]CallFrame,
+    fp: usize,
     stack: [STACK_MAX]Value,
     sp: usize,
     alloc: Allocator,
@@ -35,8 +38,8 @@ pub const Vm = struct {
 
     pub fn init(alloc: Allocator, obj_list: *ObjectList, str_table: *StringTable) Vm {
         var vm = Vm{
-            .chunk = undefined,
-            .ip = undefined,
+            .frames = undefined,
+            .fp = 0,
             .stack = undefined,
             .sp = 0,
             .alloc = alloc,
@@ -52,14 +55,24 @@ pub const Vm = struct {
         self.globals.deinit();
     }
 
-    pub fn interpret(vm: *Vm, chunk: *const Chunk) !void {
-        vm.chunk = chunk;
-        vm.ip = vm.chunk.code.items.ptr;
+    pub fn interpret(self: *Vm, func: *ObjFunction) !void {
+        var frame = &self.frames[self.fp];
 
-        try vm.run();
+        frame.function = func;
+        frame.ip = 0;
+        frame.slots = &self.stack;
+        self.fp += 1;
+
+        try self.run();
+    }
+
+    pub fn getCurrentFrame(self: *Vm) *CallFrame {
+        return &self.frames[self.fp - 1];
     }
 
     fn run(self: *Vm) !void {
+        var frame = self.getCurrentFrame();
+
         while (true) {
             const word = self.readByte();
             const instr: OpCode = @enumFromInt(word);
@@ -97,11 +110,11 @@ pub const Vm = struct {
                 },
                 .OP_GET_LOCAL => {
                     const slot = self.readByte();
-                    self.push(self.stack[slot]);
+                    self.push(frame.slots[slot]);
                 },
                 .OP_SET_LOCAL => {
                     const slot = self.readByte();
-                    self.stack[slot] = self.peek();
+                    frame.slots[slot] = self.peek();
                 },
                 .OP_DEFINE_GLOBAL => {
                     const name_obj: *Obj = try self.readConstant().as(.Obj);
@@ -110,17 +123,17 @@ pub const Vm = struct {
                 },
                 .OP_JUMP => {
                     const offset = self.readShort();
-                    self.ip += offset;
+                    frame.ip += offset;
                 },
                 .OP_JUMP_IF_FALSE => {
                     const offset = self.readShort();
                     if (try isFalsey(self.peek())) {
-                        self.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .OP_LOOP => {
                     const offset = self.readShort();
-                    self.ip -= offset;
+                    frame.ip -= offset;
                 },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
@@ -181,19 +194,22 @@ pub const Vm = struct {
     }
 
     fn readByte(self: *Vm) BYTE {
-        const byte = self.ip[0];
-        self.ip += 1;
+        const frame = self.getCurrentFrame();
+        const byte = frame.getByteCode()[frame.ip];
+        frame.ip += 1;
         return byte;
     }
 
     fn readShort(self: *Vm) u16 {
-        const r: u16 = (@as(u16, self.ip[0]) << 8) | self.ip[1];
-        self.ip += 2;
+        const frame = self.getCurrentFrame();
+        const bytecode = frame.getByteCode();
+        const r: u16 = (@as(u16, bytecode[frame.ip]) << 8) | bytecode[frame.ip + 1];
+        frame.ip += 2;
         return r;
     }
 
     fn readConstant(self: *Vm) Value {
-        return self.chunk.constants.values.items[self.readByte()];
+        return self.getCurrentFrame().getConstants()[self.readByte()];
     }
 
     fn push(self: *Vm, val: Value) void {
@@ -286,6 +302,26 @@ pub const Vm = struct {
             .Nil => std.debug.print("nil\n", .{}),
             .Obj => |o| try o.print(),
         }
+    }
+};
+
+pub const CallFrame = struct {
+    function: *ObjFunction,
+    ip: usize,
+    slots: [*]Value,
+
+    pub fn getCurrentToken(self: CallFrame) *Token {
+        const tokens = self.function.chunk.tokens.items;
+        const idx = self.ip;
+        return &tokens[idx];
+    }
+
+    pub fn getConstants(self: CallFrame) []Value {
+        return self.function.chunk.constants.values.items;
+    }
+
+    pub fn getByteCode(self: *CallFrame) []BYTE {
+        return self.function.chunk.code.items;
     }
 };
 

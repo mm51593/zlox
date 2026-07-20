@@ -3,6 +3,7 @@ const Order = @import("std").math.Order;
 const debug = @import("std").debug;
 const mem = @import("std").mem;
 const StringTable = @import("string_table.zig").StringTable;
+const Chunk = @import("chunk.zig").Chunk;
 
 pub const ObjError = error{
     InvalidType,
@@ -10,6 +11,7 @@ pub const ObjError = error{
 
 pub const ObjType = enum {
     OBJ_STRING,
+    OBJ_FUNCTION,
 };
 
 pub const Obj = struct {
@@ -30,6 +32,7 @@ pub const Obj = struct {
     pub fn print(self: *const Obj) ObjError!void {
         switch (self.type) {
             .OBJ_STRING => (try self.as(ObjString)).print(),
+            .OBJ_FUNCTION => (try self.as(ObjFunction)).print(),
         }
     }
 
@@ -40,6 +43,7 @@ pub const Obj = struct {
 
         return switch (a.type) {
             .OBJ_STRING => ObjString.cmp(try a.as(ObjString), try b.as(ObjString)) == .eq,
+            .OBJ_FUNCTION => a == b,
         };
     }
 };
@@ -99,6 +103,39 @@ pub const ObjString = struct {
     }
 };
 
+pub const ObjFunction = struct {
+    pub const tag = ObjType.OBJ_FUNCTION;
+    obj: Obj,
+    arity: u8,
+    chunk: *Chunk,
+    name: *ObjString,
+
+    pub const Type = enum {
+        Function,
+        Script,
+    };
+
+    pub fn init(alloc: Allocator, name: *ObjString) !*ObjFunction {
+        const p = try alloc.create(ObjFunction);
+        p.* = .{
+            .obj = .{ .type = .OBJ_FUNCTION, .next = null },
+            .arity = 0,
+            .chunk = try Chunk.init(alloc),
+            .name = name,
+        };
+        return p;
+    }
+
+    pub fn deinit(self: *ObjFunction, alloc: Allocator) void {
+        self.chunk.deinit();
+        alloc.destroy(self);
+    }
+
+    pub fn print(self: *ObjFunction) void {
+        debug.print("<fn {s}>\n", .{self.name.chars});
+    }
+};
+
 pub const ObjectList = struct {
     head: ?*Obj,
 
@@ -114,6 +151,10 @@ pub const ObjectList = struct {
                     const o = try node.as(ObjString);
                     o.deinit(alloc);
                 },
+                .OBJ_FUNCTION => {
+                    const o = try node.as(ObjFunction);
+                    o.deinit(alloc);
+                }
             }
         }
     }
