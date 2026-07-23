@@ -27,6 +27,7 @@ pub const Parser = struct {
         DuplicateLocalDeclaration,
         ReadingInInitializer,
         JumpTooBig,
+        TooManyParameters,
     };
 
     pub const Diagnostic = struct {
@@ -35,20 +36,32 @@ pub const Parser = struct {
     };
 
     pub const Scope = struct {
+        enclosing: ?*Scope,
         locals: [MAX_LOCAL_COUNT]Local,
         local_count: u8,
         depth: u8,
         function: *ObjFunction,
         fun_type: ObjFunction.Type,
 
-        fn init(fun_type: ObjFunction.Type) Scope {
+        fn init(enclosing: ?*Scope, fun_type: ObjFunction.Type, fun: *ObjFunction) Scope {
             return .{
+                .enclosing = enclosing,
                 .locals = undefined,
                 .local_count = 0,
                 .depth = 0,
-                .function = undefined,
+                .function = fun,
                 .fun_type = fun_type,
             };
+        }
+
+        fn create(alloc: Allocator, enclosing: ?*Scope, fun_type: ObjFunction.Type, fun: *ObjFunction) !*Scope {
+            const p = try alloc.create(Scope);
+            p.* = Scope.init(enclosing, fun_type, fun);
+            return p;
+        }
+
+        fn destroy(self: *Scope, alloc: Allocator) void {
+            alloc.destroy(self);
         }
 
         fn getLastLocal(self: *Scope) *Local {
@@ -63,7 +76,7 @@ pub const Parser = struct {
     diagnostics: std.ArrayList(Diagnostic),
     panic_mode: bool,
     str_table: *StringTable,
-    scope: Scope,
+    scope: *Scope,
 
     _scanner: Scanner,
 
@@ -76,19 +89,24 @@ pub const Parser = struct {
             .diagnostics = try std.ArrayList(Diagnostic).initCapacity(alloc, 4),
             .panic_mode = false,
             .str_table = str_table,
-            .scope = Scope.init(.Script),
+            .scope = undefined,
             ._scanner = undefined,
         };
         return p;
     }
 
     pub fn deinit(self: *Parser) void {
+        self.scope.destroy(self.alloc);
         self.diagnostics.deinit(self.alloc);
     }
 
     pub fn compile(self: *Parser, scanner: Scanner) !?*ObjFunction {
-        self.scope.function = try self.constructEntryFn();
-        self.obj_list.insert(&self.currentFunction().obj);
+        self.scope = try Scope.create(
+            self.alloc,
+            null,
+            .Script,
+            try self.constructFunction(ENTRY_POINT),
+        );
         self._scanner = scanner;
 
         try self.advance();
@@ -97,14 +115,16 @@ pub const Parser = struct {
             try self.getDecl();
         }
 
-        try self.endCompiler();
+        const res = try self.endCompiler();
 
-        return if (self.diagnostics.items.len == 0) self.currentFunction() else null;
+        return if (self.diagnostics.items.len == 0) res else null;
     }
 
     fn getDecl(self: *Parser) !void {
         if (try self.match(.VAR)) {
             try self.getVarDecl();
+        } else if (try self.match(.FUN)) { 
+            try self.getFunDecl();
         } else {
             try self.getStmt();
         }
@@ -202,7 +222,7 @@ pub const Parser = struct {
         try self.emitOp(.OP_PRINT);
     }
 
-    fn getBlock(self: *Parser) !void {
+    fn getBlock(self: *Parser) anyerror!void {
         while (self.current.token_type != .RIGHT_BRACE and
             self.current.token_type != .EOF)
         {
@@ -210,6 +230,50 @@ pub const Parser = struct {
         }
 
         try self.consume(.RIGHT_BRACE);
+    }
+
+    fn getFunDecl(self: *Parser) !void {
+        const global = try self.parseVariable();
+        self.markInitialized();
+
+        const func = try self.getFunction(.Function);
+
+        try self.emitConstant(Value{ .Obj = &func.obj });
+
+        try self.defineVariable(global);
+    }
+
+    fn getFunction(self: *Parser, fun_type: ObjFunction.Type) !*ObjFunction {
+        const name = self.previous.lexeme;
+        const fun = try self.constructFunction(name);
+        var scope = Scope.init(self.scope, fun_type, fun);
+
+        self.scope = &scope;
+        defer self.scope = self.scope.enclosing.?;
+        self.beginScope();
+
+        try self.consume(.LEFT_PAREN);
+        if (self.current.token_type != .RIGHT_PAREN) {
+            while (true) {
+                self.currentFunction().arity += 1;
+                if (self.currentFunction().arity >= std.math.maxInt(u8)) {
+                    try self.reportErrorAtCurrent(.TooManyParameters);
+                }
+
+                const constant = try self.parseVariable();
+                try self.defineVariable(constant);
+
+                if (self.current.token_type != .COMMA) {
+                    break;
+                }
+                try self.advance();
+            }
+        }
+        try self.consume(.RIGHT_PAREN);
+        try self.consume(.LEFT_BRACE);
+
+        try self.getBlock();
+        return try self.endCompiler();
     }
 
     fn getVarDecl(self: *Parser) !void {
@@ -563,8 +627,9 @@ pub const Parser = struct {
         self.scope.locals[self.scope.local_count - 1].depth = self.scope.depth;
     }
 
-    fn endCompiler(self: *Parser) !void {
+    fn endCompiler(self: *Parser) !*ObjFunction {
         try self.emitOp(OpCode.OP_RETURN);
+        return self.currentFunction();
     }
 
     fn advance(self: *Parser) !void {
@@ -652,13 +717,15 @@ pub const Parser = struct {
         }
     }
 
-    fn constructEntryFn(self: Parser) !*ObjFunction {
-        const entry_res = try ObjString.init(self.alloc, ENTRY_POINT, self.str_table);
+    fn constructFunction(self: Parser, name: []const u8) !*ObjFunction {
+        const entry_res = try ObjString.init(self.alloc, name, self.str_table);
         if (entry_res.status == .New) {
             self.obj_list.insert(&entry_res.str.obj);
         }
 
-        return try ObjFunction.init(self.alloc, entry_res.str);
+        const func = try ObjFunction.init(self.alloc, entry_res.str);
+        self.obj_list.insert(&func.obj);
+        return func;
     }
 
     fn currentFunction(self: *Parser) *ObjFunction {
