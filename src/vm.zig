@@ -21,6 +21,7 @@ pub const RuntimeError = error{
     InvalidOperand,
     BufferTooSmall,
     UndefinedVariable,
+    NotCallable,
 };
 
 const FRAMES_MAX = 64;
@@ -56,12 +57,8 @@ pub const Vm = struct {
     }
 
     pub fn interpret(self: *Vm, func: *ObjFunction) !void {
-        var frame = &self.frames[self.fp];
-
-        frame.function = func;
-        frame.ip = 0;
-        frame.slots = &self.stack;
-        self.fp += 1;
+        self.push(Value{ .Obj = &func.obj });
+        self.call(func, 0);
 
         try self.run();
     }
@@ -102,7 +99,7 @@ pub const Vm = struct {
                     const name_obj: *Obj = try self.readConstant().as(.Obj);
                     const name_str = try name_obj.as(ObjString);
 
-                    const exists = try self.globals.put(name_str, self.peek());
+                    const exists = try self.globals.put(name_str, self.peek(0));
                     if (!exists) {
                         _ = self.globals.delete(name_str);
                         return RuntimeError.UndefinedVariable;
@@ -114,7 +111,7 @@ pub const Vm = struct {
                 },
                 .OP_SET_LOCAL => {
                     const slot = self.readByte();
-                    frame.slots[slot] = self.peek();
+                    frame.slots[slot] = self.peek(0);
                 },
                 .OP_DEFINE_GLOBAL => {
                     const name_obj: *Obj = try self.readConstant().as(.Obj);
@@ -127,13 +124,18 @@ pub const Vm = struct {
                 },
                 .OP_JUMP_IF_FALSE => {
                     const offset = self.readShort();
-                    if (try isFalsey(self.peek())) {
+                    if (try isFalsey(self.peek(0))) {
                         frame.ip += offset;
                     }
                 },
                 .OP_LOOP => {
                     const offset = self.readShort();
                     frame.ip -= offset;
+                },
+                .OP_CALL => {
+                    const arg_count = self.readByte();
+                    try self.callValue(self.peek(arg_count), arg_count);
+                    frame = &self.frames[self.fp - 1];
                 },
                 .OP_NEGATE => {
                     const val = try unpack(self.pop().as(.Number));
@@ -223,13 +225,33 @@ pub const Vm = struct {
         return val;
     }
 
-    fn peek(self: Vm) Value {
-        return self.stack[self.sp - 1];
+    fn peek(self: Vm, count: usize) Value {
+        return self.stack[self.sp - 1 - count];
     }
 
-    fn printStack(self: Vm) void {
+    fn callValue(self: *Vm, callee: Value, arg_count: u8) !void {
+        const obj: *Obj = callee.as(.Obj) catch {
+            return RuntimeError.NotCallable;
+        };
+        const func = obj.as(ObjFunction) catch {
+            return RuntimeError.NotCallable;
+        };
+
+        self.call(func, arg_count);
+    }
+
+    fn call(self: *Vm, func: *ObjFunction, arg_count: u8) void {
+        var frame = &self.frames[self.fp];
+        self.fp += 1;
+
+        frame.function = func;
+        frame.ip = 0;
+        frame.slots = @ptrCast(&self.stack[self.sp - arg_count]);
+    }
+
+    fn printStack(self: Vm) !void {
         for (0..self.sp) |idx| {
-            std.debug.print("[{}]", .{self.stack[idx]});
+            try printValue(self.stack[idx]);
         }
     }
 

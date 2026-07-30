@@ -12,7 +12,7 @@ const ObjectList = @import("object.zig").ObjectList;
 const StringTable = @import("string_table.zig").StringTable;
 const Local = @import("local.zig").Local;
 
-const ENTRY_POINT = "_start";
+const ENTRY_POINT = "";
 const MAX_LOCAL_COUNT = std.math.maxInt(u8);
 
 pub const Parser = struct {
@@ -123,7 +123,7 @@ pub const Parser = struct {
     fn getDecl(self: *Parser) !void {
         if (try self.match(.VAR)) {
             try self.getVarDecl();
-        } else if (try self.match(.FUN)) { 
+        } else if (try self.match(.FUN)) {
             try self.getFunDecl();
         } else {
             try self.getStmt();
@@ -363,6 +363,33 @@ pub const Parser = struct {
         }
     }
 
+    fn getCall(self: *Parser, _: bool) !void {
+        const arg_count = try self.getArgList();
+        try self.emitOp(.OP_CALL);
+        try self.emitByte(arg_count);
+    }
+
+    fn getArgList(self: *Parser) !u8 {
+        var arg_count: u8 = 0;
+        if (self.current.token_type != .RIGHT_PAREN) {
+            while (true) {
+                try self.getExpr();
+                arg_count += 1;
+
+                if (arg_count >= 255) {
+                    try self.reportErrorAtCurrent(.TooManyParameters);
+                }
+
+                if (!try self.match(.COMMA)) {
+                    break;
+                }
+            }
+        }
+
+        try self.consume(.RIGHT_PAREN);
+        return arg_count;
+    }
+
     fn getLit(self: *Parser, _: bool) !void {
         switch (self.previous.token_type) {
             .TRUE => try self.emitOp(.OP_TRUE),
@@ -434,11 +461,11 @@ pub const Parser = struct {
     }
 
     fn makeIdentifier(self: *Parser, name: Token) !u8 {
-        const ident_init_res = (try ObjString.init(
+        const ident_init_res = try ObjString.init(
             self.alloc,
             name.lexeme,
             self.str_table,
-        ));
+        );
 
         const str = ident_init_res.str;
         if (ident_init_res.status == .New) {
@@ -601,10 +628,6 @@ pub const Parser = struct {
     }
 
     fn resolveLocal(self: *Parser, name: Token) !?u8 {
-        if (self.scope.local_count == 0) {
-            return null;
-        }
-
         var idx = std.math.sub(u8, self.scope.local_count, 1) catch
             {
                 return null;
@@ -718,12 +741,12 @@ pub const Parser = struct {
     }
 
     fn constructFunction(self: Parser, name: []const u8) !*ObjFunction {
-        const entry_res = try ObjString.init(self.alloc, name, self.str_table);
-        if (entry_res.status == .New) {
-            self.obj_list.insert(&entry_res.str.obj);
+        const func_res = try ObjString.init(self.alloc, name, self.str_table);
+        if (func_res.status == .New) {
+            self.obj_list.insert(&func_res.str.obj);
         }
 
-        const func = try ObjFunction.init(self.alloc, entry_res.str);
+        const func = try ObjFunction.init(self.alloc, func_res.str);
         self.obj_list.insert(&func.obj);
         return func;
     }
@@ -770,46 +793,46 @@ const ParseRule = struct {
         for (std.enums.values(Token.Type)) |tag| {
             table[@intFromEnum(tag)] = switch (tag) {
                 // zig fmt: off
-                .LEFT_PAREN    => rule(p.getGrp,  null,     .None),
-                .RIGHT_PAREN   => rule(null,      null,     .None),
-                .LEFT_BRACE    => rule(null,      null,     .None),
-                .RIGHT_BRACE   => rule(null,      null,     .None),
-                .COMMA         => rule(null,      null,     .None),
-                .DOT           => rule(null,      null,     .None),
-                .MINUS         => rule(p.getUnar, p.getBin, .Term),
-                .PLUS          => rule(null,      p.getBin, .Term),
-                .SEMICOLON     => rule(null,      null,     .None),
-                .SLASH         => rule(null,      p.getBin, .Fact),
-                .STAR          => rule(null,      p.getBin, .Fact),
-                .BANG          => rule(p.getUnar, null,     .None),
-                .BANG_EQUAL    => rule(null,      p.getBin, .Eql ),
-                .EQUAL         => rule(null,      null,     .None),
-                .EQUAL_EQUAL   => rule(null,      p.getBin, .Eql ),
-                .GREATER       => rule(null,      p.getBin, .Cmp ),
-                .GREATER_EQUAL => rule(null,      p.getBin, .Cmp ),
-                .LESS          => rule(null,      p.getBin, .Cmp ),
-                .LESS_EQUAL    => rule(null,      p.getBin, .Cmp ),
-                .IDENTIFIER    => rule(p.getVar,  null,     .None),
-                .STRING        => rule(p.getStr,  null,     .None),
-                .NUMBER        => rule(p.getNum,  null,     .None),
-                .AND           => rule(null,      p.getAnd, .And),
-                .CLASS         => rule(null,      null,     .None),
-                .ELSE          => rule(null,      null,     .None),
-                .FALSE         => rule(p.getLit,  null,     .None),
-                .FUN           => rule(null,      null,     .None),
-                .FOR           => rule(null,      null,     .None),
-                .IF            => rule(null,      null,     .None),
-                .NIL           => rule(p.getLit,  null,     .None),
-                .OR            => rule(null,      p.getOr,  .None),
-                .PRINT         => rule(null,      null,     .None),
-                .RETURN        => rule(null,      null,     .None),
-                .SUPER         => rule(null,      null,     .None),
-                .THIS          => rule(null,      null,     .None),
-                .TRUE          => rule(p.getLit,  null,     .None),
-                .VAR           => rule(null,      null,     .None),
-                .WHILE         => rule(null,      null,     .None),
-                .EOF           => rule(null,      null,     .None),
-                .ERROR         => rule(null,      null,     .None),
+                .LEFT_PAREN    => rule(p.getGrp,  p.getCall, .Call),
+                .RIGHT_PAREN   => rule(null,      null,      .None),
+                .LEFT_BRACE    => rule(null,      null,      .None),
+                .RIGHT_BRACE   => rule(null,      null,      .None),
+                .COMMA         => rule(null,      null,      .None),
+                .DOT           => rule(null,      null,      .None),
+                .MINUS         => rule(p.getUnar, p.getBin,  .Term),
+                .PLUS          => rule(null,      p.getBin,  .Term),
+                .SEMICOLON     => rule(null,      null,      .None),
+                .SLASH         => rule(null,      p.getBin,  .Fact),
+                .STAR          => rule(null,      p.getBin,  .Fact),
+                .BANG          => rule(p.getUnar, null,      .None),
+                .BANG_EQUAL    => rule(null,      p.getBin,  .Eql ),
+                .EQUAL         => rule(null,      null,      .None),
+                .EQUAL_EQUAL   => rule(null,      p.getBin,  .Eql ),
+                .GREATER       => rule(null,      p.getBin,  .Cmp ),
+                .GREATER_EQUAL => rule(null,      p.getBin,  .Cmp ),
+                .LESS          => rule(null,      p.getBin,  .Cmp ),
+                .LESS_EQUAL    => rule(null,      p.getBin,  .Cmp ),
+                .IDENTIFIER    => rule(p.getVar,  null,      .None),
+                .STRING        => rule(p.getStr,  null,      .None),
+                .NUMBER        => rule(p.getNum,  null,      .None),
+                .AND           => rule(null,      p.getAnd,  .And),
+                .CLASS         => rule(null,      null,      .None),
+                .ELSE          => rule(null,      null,      .None),
+                .FALSE         => rule(p.getLit,  null,      .None),
+                .FUN           => rule(null,      null,      .None),
+                .FOR           => rule(null,      null,      .None),
+                .IF            => rule(null,      null,      .None),
+                .NIL           => rule(p.getLit,  null,      .None),
+                .OR            => rule(null,      p.getOr,   .None),
+                .PRINT         => rule(null,      null,      .None),
+                .RETURN        => rule(null,      null,      .None),
+                .SUPER         => rule(null,      null,      .None),
+                .THIS          => rule(null,      null,      .None),
+                .TRUE          => rule(p.getLit,  null,      .None),
+                .VAR           => rule(null,      null,      .None),
+                .WHILE         => rule(null,      null,      .None),
+                .EOF           => rule(null,      null,      .None),
+                .ERROR         => rule(null,      null,      .None),
             };
         }
 

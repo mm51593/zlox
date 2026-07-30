@@ -65,8 +65,8 @@ fn interpret(line: []u8, vm: *Vm, parser: *Parser) !void {
 
     const func = try parser.compile(scanner);
 
-    if (func) |valid_chunk| {
-        vm.interpret(valid_chunk) catch |err| {
+    if (func) |valid_func| {
+        vm.interpret(valid_func) catch |err| {
             //return err;
             std.debug.print("Runtime error: {} near token {}\n", .{err, vm.getCurrentFrame().getCurrentToken()});
         };
