@@ -13,6 +13,7 @@ const ValueTag = @import("value.zig").ValueTag;
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
 const ObjFunction = @import("object.zig").ObjFunction;
+const ObjNativeFunction = @import("object.zig").ObjNativeFunc;
 const ObjectList = @import("object.zig").ObjectList;
 const StringTable = @import("string_table.zig").StringTable;
 const Table = @import("table.zig").Table;
@@ -242,11 +243,26 @@ pub const Vm = struct {
         const obj: *Obj = callee.as(.Obj) catch {
             return RuntimeError.NotCallable;
         };
-        const func = obj.as(ObjFunction) catch {
-            return RuntimeError.NotCallable;
-        };
 
-        self.call(func, arg_count);
+        switch (obj.type) {
+            .OBJ_FUNCTION => {
+                const func = obj.as(ObjFunction) catch {
+                    unreachable;
+                };
+
+                self.call(func, arg_count);
+            },
+            .OBJ_NATIVE => {
+                const obj_native = obj.as(ObjNativeFunction) catch {
+                    unreachable;
+                };
+                const native = obj_native.native_fn;
+                const res = native(self.stack[self.sp - arg_count .. self.sp]);
+                self.sp -= arg_count + 1;
+                self.push(res);
+            },
+            else => return RuntimeError.NotCallable,
+        }
     }
 
     fn call(self: *Vm, func: *ObjFunction, arg_count: u8) void {
@@ -333,6 +349,20 @@ pub const Vm = struct {
             .Nil => std.debug.print("nil\n", .{}),
             .Obj => |o| try o.print(),
         }
+    }
+
+    pub fn defineNative(self: *Vm, name: []const u8, function: ObjNativeFunction.NativeFunc) !void {
+        const native_obj = try ObjNativeFunction.init(self.alloc, function);
+        self.objects.insert(&native_obj.obj);
+        const name_obj_res = (try ObjString.init(self.alloc, name, self.str_table));
+        if (name_obj_res.status == .New) {
+            self.objects.insert(&name_obj_res.str.obj);
+        }
+        self.push(Value{ .Obj = &name_obj_res.str.obj });
+        self.push(Value{ .Obj = &native_obj.obj });
+        _ = try self.globals.put((try (try self.stack[self.sp - 2].as(.Obj)).as(ObjString)), self.stack[self.sp - 1]);
+        _ = self.pop();
+        _ = self.pop();
     }
 };
 

@@ -4,6 +4,7 @@ const debug = @import("std").debug;
 const mem = @import("std").mem;
 const StringTable = @import("string_table.zig").StringTable;
 const Chunk = @import("chunk.zig").Chunk;
+const Value = @import("value.zig").Value;
 
 pub const ObjError = error{
     InvalidType,
@@ -12,6 +13,7 @@ pub const ObjError = error{
 pub const ObjType = enum {
     OBJ_STRING,
     OBJ_FUNCTION,
+    OBJ_NATIVE,
 };
 
 pub const Obj = struct {
@@ -33,6 +35,7 @@ pub const Obj = struct {
         switch (self.type) {
             .OBJ_STRING => (try self.as(ObjString)).print(),
             .OBJ_FUNCTION => (try self.as(ObjFunction)).print(),
+            .OBJ_NATIVE => (try self.as(ObjNativeFunc)).print(),
         }
     }
 
@@ -44,6 +47,7 @@ pub const Obj = struct {
         return switch (a.type) {
             .OBJ_STRING => ObjString.cmp(try a.as(ObjString), try b.as(ObjString)) == .eq,
             .OBJ_FUNCTION => a == b,
+            .OBJ_NATIVE => a == b,
         };
     }
 };
@@ -136,6 +140,30 @@ pub const ObjFunction = struct {
     }
 };
 
+pub const ObjNativeFunc = struct {
+    pub const tag = ObjType.OBJ_NATIVE;
+    pub const NativeFunc = *const fn (args: []Value) Value;
+    obj: Obj,
+    native_fn: NativeFunc,
+    
+    pub fn init(alloc: Allocator, native: NativeFunc) !*ObjNativeFunc {
+        const p = try alloc.create(ObjNativeFunc);
+        p.* = .{
+            .obj = .{ .type = .OBJ_NATIVE, .next = null },
+            .native_fn = native,
+        };
+        return p;
+    }
+
+    pub fn deinit(self: *ObjNativeFunc, alloc: Allocator) void {
+        alloc.destroy(self);
+    }
+
+    pub fn print(_: *ObjNativeFunc) void {
+        debug.print("<native fn>", .{});
+    }
+};
+
 pub const ObjectList = struct {
     head: ?*Obj,
 
@@ -153,6 +181,10 @@ pub const ObjectList = struct {
                 },
                 .OBJ_FUNCTION => {
                     const o = try node.as(ObjFunction);
+                    o.deinit(alloc);
+                },
+                .OBJ_NATIVE => {
+                    const o = try node.as(ObjNativeFunc);
                     o.deinit(alloc);
                 }
             }
