@@ -75,7 +75,16 @@ pub const Vm = struct {
             const instr: OpCode = @enumFromInt(word);
             switch (instr) {
                 .OP_RETURN => {
-                    return;
+                    const result = self.pop();
+                    self.fp -= 1;
+                    if (self.fp == 0) {
+                        _ = self.pop();
+                        return;
+                    }
+
+                    self.stack[self.sp] = frame.slots[0];
+                    self.push(result);
+                    frame = &self.frames[self.fp - 1];
                 },
                 .OP_PRINT => {
                     const val = self.pop();

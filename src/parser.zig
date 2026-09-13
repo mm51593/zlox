@@ -28,6 +28,7 @@ pub const Parser = struct {
         ReadingInInitializer,
         JumpTooBig,
         TooManyParameters,
+        TopLevelReturn,
     };
 
     pub const Diagnostic = struct {
@@ -147,6 +148,8 @@ pub const Parser = struct {
             self.beginScope();
             try self.getBlock();
             try self.endScope();
+        } else if (try self.match(.RETURN)) {
+            try self.getReturnStmt();
         } else {
             try self.getExprStmt();
         }
@@ -220,6 +223,21 @@ pub const Parser = struct {
         try self.getExpr();
         try self.consume(.SEMICOLON);
         try self.emitOp(.OP_PRINT);
+    }
+
+    fn getReturnStmt(self: *Parser) !void {
+        if (self.scope.fun_type == .Script) {
+            try self.reportErrorAtCurrent(.TopLevelReturn);
+        }
+
+        if (try self.match(.SEMICOLON)) {
+            try self.emitConstant(.Nil);
+            try self.emitOp(.OP_RETURN);
+        } else {
+            try self.getExpr();
+            try self.consume(.SEMICOLON);
+            try self.emitOp(.OP_RETURN);
+        }
     }
 
     fn getBlock(self: *Parser) anyerror!void {
@@ -651,6 +669,7 @@ pub const Parser = struct {
     }
 
     fn endCompiler(self: *Parser) !*ObjFunction {
+        try self.emitConstant(.Nil);
         try self.emitOp(OpCode.OP_RETURN);
         return self.currentFunction();
     }
